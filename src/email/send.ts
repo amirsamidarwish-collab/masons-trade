@@ -5,7 +5,8 @@ export interface OutgoingEmail {
   subject: string;
   html: string;
   text: string;
-  unsubUrl?: string;
+  /** Required: every send must carry List-Unsubscribe. Not optional by design. */
+  unsubUrl: string;
 }
 
 export interface SendResult {
@@ -39,14 +40,8 @@ export async function sendBatch(
     html: e.html,
     text: e.text,
     headers: {
-      ...(e.unsubUrl
-        ? {
-            'List-Unsubscribe': `<${e.unsubUrl}>`,
-            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-          }
-        : {
-            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-          }),
+      'List-Unsubscribe': `<${e.unsubUrl}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
     },
   }));
 

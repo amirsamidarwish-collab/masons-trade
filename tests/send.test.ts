@@ -14,6 +14,7 @@ const email = {
   subject: 'Hello',
   html: '<p>Hello</p>',
   text: 'Hello',
+  unsubUrl: 'https://masonstrade.com/unsubscribe?t=abc',
 };
 
 afterEach(() => vi.restoreAllMocks());
@@ -33,6 +34,7 @@ describe('sendBatch', () => {
     expect((init.headers as Record<string, string>)['Idempotency-Key']).toBe('trade-1-chunk-0');
     const body = JSON.parse(init.body as string);
     expect(body[0].to).toEqual(['real@example.com']);
+    expect(body[0].headers['List-Unsubscribe']).toBe('<https://masonstrade.com/unsubscribe?t=abc>');
     expect(body[0].headers['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click');
   });
 
@@ -46,6 +48,20 @@ describe('sendBatch', () => {
 
     const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
     expect(body[0].to).toEqual(['test@example.com']);
+  });
+
+  it('sends the unsubscribe headers even when the recipient is redirected by DRY_RUN', async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ data: [{ id: 'e1' }] }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await sendBatch({ ...baseEnv, DRY_RUN: 'true' } as Env, [email], 'k');
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body[0].headers['List-Unsubscribe']).toBe(
+      '<https://masonstrade.com/unsubscribe?t=abc>',
+    );
   });
 
   it('marks every recipient failed when the provider errors', async () => {

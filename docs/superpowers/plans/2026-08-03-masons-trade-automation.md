@@ -591,6 +591,7 @@ const email = {
   subject: 'Hello',
   html: '<p>Hello</p>',
   text: 'Hello',
+  unsubUrl: 'https://masonstrade.com/unsubscribe?t=abc',
 };
 
 afterEach(() => vi.restoreAllMocks());
@@ -610,7 +611,24 @@ describe('sendBatch', () => {
     expect((init.headers as Record<string, string>)['Idempotency-Key']).toBe('trade-1-chunk-0');
     const body = JSON.parse(init.body as string);
     expect(body[0].to).toEqual(['real@example.com']);
+    expect(body[0].headers['List-Unsubscribe']).toBe(
+      '<https://masonstrade.com/unsubscribe?t=abc>',
+    );
     expect(body[0].headers['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click');
+  });
+
+  it('sends the unsubscribe headers even when the recipient is redirected by DRY_RUN', async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ data: [{ id: 'e1' }] }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await sendBatch({ ...baseEnv, DRY_RUN: 'true' } as Env, [email], 'k');
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body[0].headers['List-Unsubscribe']).toBe(
+      '<https://masonstrade.com/unsubscribe?t=abc>',
+    );
   });
 
   it('redirects every recipient to the test inbox when DRY_RUN is on', async () => {
@@ -662,7 +680,8 @@ export interface OutgoingEmail {
   subject: string;
   html: string;
   text: string;
-  unsubUrl?: string;
+  /** Required: every send must carry List-Unsubscribe. Not optional by design. */
+  unsubUrl: string;
 }
 
 export interface SendResult {
@@ -696,14 +715,8 @@ export async function sendBatch(
     html: e.html,
     text: e.text,
     headers: {
-      ...(e.unsubUrl
-        ? {
-            'List-Unsubscribe': `<${e.unsubUrl}>`,
-            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-          }
-        : {
-            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-          }),
+      'List-Unsubscribe': `<${e.unsubUrl}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
     },
   }));
 
