@@ -907,6 +907,13 @@ export async function markUnsubscribed(db: D1Database, id: number): Promise<void
   await db.prepare("UPDATE subscribers SET status = 'unsubscribed' WHERE id = ?").bind(id).run();
 }
 
+export async function markUnsubscribedByEmail(db: D1Database, email: string): Promise<void> {
+  await db
+    .prepare("UPDATE subscribers SET status = 'unsubscribed' WHERE email = ?")
+    .bind(email.toLowerCase())
+    .run();
+}
+
 export async function markBounced(db: D1Database, email: string): Promise<void> {
   await db
     .prepare("UPDATE subscribers SET status = 'bounced' WHERE email = ?")
@@ -1734,7 +1741,7 @@ git commit -m "Add 30 hour approval sweep on cron"
 - Test: `tests/unsubscribe.test.ts`
 
 **Interfaces:**
-- Consumes: `findByUnsubToken`, `markUnsubscribed`, `markBounced`
+- Consumes: `findByUnsubToken`, `markUnsubscribed`, `markUnsubscribedByEmail`, `markBounced` (all from Task 4's `src/db/subscribers.ts`)
 - Produces: routes `GET /unsubscribe`, `POST /unsubscribe`, `POST /webhooks/email`
 
 `POST /unsubscribe` exists because `List-Unsubscribe-Post` makes Gmail POST the link.
@@ -1833,13 +1840,13 @@ Expected: FAIL — routes return 404.
 - [ ] **Step 3: Write `src/routes/unsubscribe.ts`**
 
 ```ts
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import type { Env } from '../types';
 import { findByUnsubToken, markUnsubscribed } from '../db/subscribers';
 
 export const unsubscribe = new Hono<{ Bindings: Env }>();
 
-async function handle(c: any) {
+async function handle(c: Context<{ Bindings: Env }>) {
   const token = c.req.query('t') ?? '';
   const subscriber = await findByUnsubToken(c.env.DB, token);
   if (!subscriber) return c.text('This unsubscribe link is not valid.', 404);
@@ -1861,7 +1868,7 @@ unsubscribe.post('/unsubscribe', handle);
 ```ts
 import { Hono } from 'hono';
 import type { Env } from '../types';
-import { markBounced, markUnsubscribed, findByUnsubToken } from '../db/subscribers';
+import { markBounced, markUnsubscribedByEmail } from '../db/subscribers';
 
 export const bounce = new Hono<{ Bindings: Env }>();
 
@@ -1878,13 +1885,7 @@ bounce.post('/webhooks/email', async (c) => {
   if (body.type === 'email.bounced') {
     await markBounced(c.env.DB, to);
   } else if (body.type === 'email.complained') {
-    const row = await c.env.DB.prepare('SELECT unsub_token FROM subscribers WHERE email = ?')
-      .bind(to.toLowerCase())
-      .first<{ unsub_token: string }>();
-    if (row) {
-      const subscriber = await findByUnsubToken(c.env.DB, row.unsub_token);
-      if (subscriber) await markUnsubscribed(c.env.DB, subscriber.id);
-    }
+    await markUnsubscribedByEmail(c.env.DB, to);
   }
 
   return c.json({ ok: true });
