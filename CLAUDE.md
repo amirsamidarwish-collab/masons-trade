@@ -42,8 +42,10 @@ The entire trade-input path exists in its current shape because of this:
 
 **Deliverability** (this is how the sending domain stays alive):
 
-- Double opt-in via the confirmation link inside the "under review" email. Unconfirmed
-  addresses never receive a trade.
+- **There is no double opt-in** — an explicit owner decision, not an oversight. Do not add
+  one back without asking. Because it is absent, these are load-bearing: MX validation at
+  signup, honeypot field, IP rate limiting, and pruning a subscriber on their *first* hard
+  bounce. They are the only thing keeping dead addresses off the list.
 - `List-Unsubscribe` headers on every send. Bounce/complaint webhooks mark subscribers.
 - Emails are semantic text, never image-based layouts.
 - All sending goes through the single `sendEmail()` module so the provider can be swapped

@@ -42,8 +42,7 @@ No servers, no always-on process.
 
 ```
 Site form ──POST──> /subscribe ─┐
-                                │
-Subscriber ──GET──> /confirm    ├──> D1 (subscribers, trades, send_log)
+                                ├──> D1 (subscribers, trades, send_log)
 Subscriber ──GET──> /unsubscribe│
                                 │
 Operator ──voice──> Telegram ───┴──> /telegram/webhook ──> Workers AI (Whisper)
@@ -57,22 +56,21 @@ Cron (*/15) ──> approvals sweep                               v
 | Route | Method | Purpose |
 |---|---|---|
 | `/subscribe` | POST | Public. Accepts `{email}` from the site form. CORS-enabled. |
-| `/confirm` | GET | Double opt-in confirmation link, token in query string. |
 | `/unsubscribe` | GET | One-click unsubscribe, token in query string. |
 | `/telegram/webhook` | POST | Telegram updates. Secret-token header + chat ID allowlist. |
 | cron `*/15 * * * *` | — | Approves subscribers past their 30-hour window. |
 
 ### Data model
 
-**`subscribers`** — `id`, `email` (unique, lowercased), `status`, `confirm_token`,
-`unsub_token`, `created_at`, `confirmed_at`, `approved_at`, `ip_hash`.
+**`subscribers`** — `id`, `email` (unique, lowercased), `status`, `unsub_token`,
+`created_at`, `approved_at`, `ip_hash`.
 
 Status transitions:
 
 ```
-pending_confirm ──confirm link──> pending_approval ──cron, +30h──> approved
-       │                                 │                             │
-       └─────────────────────────────────┴──> unsubscribed / bounced <─┘
+pending_approval ──cron, +30h──> approved
+       │                             │
+       └──> unsubscribed / bounced <─┘
 ```
 
 **`trades`** — `id`, parsed fields (`pair`, `direction`, `entry`, `take_profit`,
@@ -85,19 +83,23 @@ sending idempotent and resumable.
 ## Flow 1 — signup and approval
 
 1. Site form POSTs to `/subscribe`. The Worker validates the address, rate-limits by IP,
-   and inserts the subscriber as `pending_confirm`. A duplicate address returns the same
+   and inserts the subscriber as `pending_approval`. A duplicate address returns the same
    success response as a new one (no account enumeration).
-2. Email 1, "your application is under review", is sent immediately. **The confirmation
-   link lives inside this email**, worded as part of the review process: confirm this
-   address so we can contact you about your application. This is a genuine double opt-in
-   without feeling like a hoop, and it is the main protection for the sending domain.
-3. The cron sweep runs every 15 minutes and finds subscribers who are confirmed and whose
-   `created_at` is more than 30 hours ago. It flips them to `approved` and sends email 2,
-   "approved".
-4. The 30-hour clock starts at signup, not at confirmation. Someone who confirms late is
-   picked up on the next tick.
+2. Email 1, "your application is under review", is sent immediately.
+3. The cron sweep runs every 15 minutes and finds subscribers whose `created_at` is more
+   than 30 hours ago. It flips them to `approved` and sends email 2, "approved".
 
-**Unconfirmed addresses never receive a trade.**
+**There is no double opt-in.** This was an explicit decision by the project owner
+(2026-08-03) to keep signup frictionless. It removes the strongest available protection for
+the sending domain, so the following compensating controls are **required**, not optional:
+
+- **MX validation** at signup — the domain part must have a mail exchanger. Rejects typos
+  like `gmial.com` before they ever enter the list.
+- **Honeypot field** on the form, hidden from humans, to drop bot submissions.
+- **Rate limiting** by IP, tighter than it would need to be with confirmation in place.
+- **Aggressive bounce pruning** — a subscriber is marked `bounced` and excluded on the
+  *first* hard bounce, with no retry. Without a confirm step this is the only thing keeping
+  dead addresses off the list.
 
 ## Flow 2 — trade broadcast
 
@@ -153,7 +155,7 @@ immediately.
 **Reputation hygiene** — non-negotiable, this is how a sending domain survives:
 
 - Own domain with SPF, DKIM and DMARC configured.
-- Double opt-in (see Flow 1).
+- The compensating controls listed in Flow 1, since there is no double opt-in.
 - `List-Unsubscribe` and `List-Unsubscribe-Post` headers on every send, so one-click
   unsubscribe works from Gmail's own UI.
 - Bounce and complaint webhooks mark subscribers `bounced` / `unsubscribed` automatically.
@@ -162,9 +164,9 @@ immediately.
 
 ## Email content
 
-Three templates are needed: "under review", "approved", and the trade broadcast. The final
-wording is to be supplied by the site owner; implementation uses clearly-marked placeholder
-copy until then, and the copy is not invented silently.
+Three templates: "under review", "approved", and the trade broadcast. First drafts are in
+[`docs/email-templates.md`](../../email-templates.md). The site owner owns the final
+wording — no promotional or performance claims are written on his behalf.
 
 Every email carries the disclaimer already present on the site — that the information is not
 financial advice, that no client funds are managed, and that each recipient is responsible
