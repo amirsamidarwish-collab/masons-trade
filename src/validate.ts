@@ -19,8 +19,8 @@ export async function hasMxRecord(domain: string): Promise<boolean> {
       { headers: { accept: 'application/dns-json' } },
     );
     if (!res.ok) return false;
-    const body = (await res.json()) as { Answer?: unknown[] };
-    return Array.isArray(body.Answer) && body.Answer.length > 0;
+    const body = (await res.json()) as { Answer?: { type?: number }[] };
+    return Array.isArray(body.Answer) && body.Answer.some((a) => a.type === 15);
   } catch {
     return false;
   }

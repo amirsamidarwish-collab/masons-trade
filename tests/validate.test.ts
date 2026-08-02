@@ -30,6 +30,14 @@ describe('hasMxRecord', () => {
     expect(await hasMxRecord('gmial.com')).toBe(false);
   });
 
+  it('rejects a domain whose answers contain no MX-type record', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ Answer: [{ type: 1 }] }))),
+    );
+    expect(await hasMxRecord('example.com')).toBe(false);
+  });
+
   it('rejects rather than accepts when the DNS lookup itself fails', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('boom'); }));
     expect(await hasMxRecord('gmail.com')).toBe(false);

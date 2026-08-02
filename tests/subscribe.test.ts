@@ -58,16 +58,19 @@ describe('POST /subscribe', () => {
     expect(row?.n).toBe(0);
   });
 
-  it('returns success for a duplicate without creating a second row', async () => {
-    await post({ email: 'dupe@example.com' });
-    const res = await post({ email: 'dupe@example.com' });
-    expect(res.status).toBe(200);
+  it('returns an identical response for a duplicate, so the list cannot be enumerated', async () => {
+    const first = await post({ email: 'dupe@example.com' });
+    const second = await post({ email: 'dupe@example.com' });
+
+    expect(second.status).toBe(first.status);
+    expect(await second.text()).toBe(await first.text());
+
     const row = await env.DB.prepare('SELECT COUNT(*) AS n FROM subscribers').first<{ n: number }>();
     expect(row?.n).toBe(1);
   });
 
   it('rate limits a single IP after five signups', async () => {
     for (let i = 0; i < 5; i++) await post({ email: `u${i}@example.com` });
-    expect((await post({ email: 'u6@example.com' })).status).toBe(429);
+    expect((await post({ email: 'u5@example.com' })).status).toBe(429);
   });
 });
