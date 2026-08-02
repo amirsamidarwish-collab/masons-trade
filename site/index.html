@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mason's Trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --wine: #4a0d1a;
+    --wine-deep: #26050c;
+    --gold: #c9a227;
+    --gold-bright: #e8c766;
+    --white: #ffffff;
+    --ivory-dim: #cbb0ac;
+    --dim2: #8c7470;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    background: radial-gradient(ellipse at 50% 30%, var(--wine) 0%, var(--wine-deep) 75%);
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    min-height:100vh;
+    gap: 40px;
+    font-family: 'IBM Plex Mono', monospace;
+    padding: 24px;
+    text-align:center;
+  }
+
+  .logo{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap: 14px;
+    color: var(--gold-bright);
+  }
+  .logo svg{ width: 64px; height: 64px; }
+  .logo-title{
+    font-family: 'Cormorant Garamond', serif;
+    font-weight: 600;
+    font-size: clamp(30px, 6vw, 44px);
+    letter-spacing: 0.05em;
+    color: var(--gold);
+    text-align:center;
+  }
+
+  .copy{
+    max-width: 460px;
+    display:flex;
+    flex-direction:column;
+    gap: 10px;
+  }
+  .copy p{
+    font-family: 'Cormorant Garamond', serif;
+    font-weight: 500;
+    font-size: clamp(17px, 2.4vw, 21px);
+    line-height: 1.5;
+    color: var(--ivory-dim);
+  }
+  .copy p.leverage{
+    color: var(--gold-bright);
+  }
+
+  button{
+    background: #000;
+    color: var(--white);
+    border: none;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 14px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-weight: 500;
+    padding: 20px 52px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+  }
+  button:hover{ background: #1a1a1a; }
+  button:focus-visible{
+    outline: 2px solid var(--gold-bright);
+    outline-offset: 3px;
+  }
+
+  form{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap: 16px;
+  }
+  input[type="email"]{
+    background: rgba(0,0,0,0.25);
+    border: 1px solid #7a3040;
+    color: #ede7d9;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 14px;
+    padding: 16px 20px;
+    outline: none;
+    min-width: 280px;
+    text-align:center;
+  }
+  input[type="email"]::placeholder{ color: #a06b74; }
+  input[type="email"]:focus-visible{
+    outline: 2px solid var(--gold-bright);
+    outline-offset: 2px;
+  }
+  .form-success{
+    display:none;
+    max-width: 380px;
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 17px;
+    color: var(--gold-bright);
+  }
+  .disclaimer{
+    max-width: 420px;
+    font-size: 11px;
+    line-height: 1.6;
+    letter-spacing: 0.02em;
+    color: var(--dim2);
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="logo">
+    <svg viewBox="0 0 48 48" fill="none" stroke="currentColor">
+      <circle cx="24" cy="24" r="21" stroke-width="1"/>
+      <path d="M24 9 L38 34 L10 34 Z" stroke-width="1.1"/>
+      <path d="M24 34 L10 9 L38 9 Z" stroke-width="0.7" opacity="0.6"/>
+      <circle cx="24" cy="24" r="6" stroke-width="1"/>
+    </svg>
+    <span class="logo-title">Mason's Trade</span>
+  </div>
+
+  <div class="copy">
+    <p>We send market predictions for Forex, commodities, and indexes.</p>
+    <p class="leverage">Our predictions work with a hundred x leverage only.</p>
+  </div>
+
+  <form id="waitlistForm">
+    <input type="email" id="email" name="email" placeholder="your@email.com" required autocomplete="email">
+    <button type="submit">Request access</button>
+  </form>
+  <p class="form-success" id="formSuccess">Your request has been received.</p>
+
+  <p class="disclaimer">The information provided does not constitute financial advice. We do not manage client funds or charge for outcomes. Each individual is responsible for their own trading decisions.</p>
+
+  <script>
+    const form = document.getElementById('waitlistForm');
+    const success = document.getElementById('formSuccess');
+    form.addEventListener('submit', function(e){
+      e.preventDefault();
+      const emailInput = document.getElementById('email');
+      if(!emailInput.checkValidity()){
+        emailInput.focus();
+        return;
+      }
+      form.style.display = 'none';
+      success.style.display = 'block';
+    });
+  </script>
+
+</body>
+</html>
