@@ -24,6 +24,16 @@ Read `CLAUDE.md` and `docs/superpowers/specs/2026-08-03-masons-trade-automation-
 - **Never modify the visual styling in `site/index.html`.** Wire the form only.
 - Test time-dependent logic with an injected `now: number`. Never sleep in a test.
 - Secrets via `wrangler secret put`, never committed. Local dev secrets go in `.dev.vars` (gitignored).
+- **`npx tsc --noEmit` must be clean before every commit**, alongside the tests. `vitest run`
+  does not type-check, so a green suite proves nothing about types.
+- **Typing traps in test files.** The example test snippets in this plan are a starting
+  point, not verified TypeScript — apply these two rules when a snippet trips the type
+  checker:
+  - `afterEach(() => vi.restoreAllMocks())` returns a value where `void` is expected. Write
+    it with a block body: `afterEach(() => { vi.restoreAllMocks(); });`
+  - `vi.fn(async () => ...)` produces a mock whose `mock.calls` is typed `[]`, so indexing
+    `calls[0][1]` fails. Declare fetch mocks with `stubFetch` from `tests/helpers.ts`
+    (created in Task 3), which keeps `mock.calls` typed as `[string, RequestInit | undefined]`.
 
 ---
 
@@ -558,7 +568,7 @@ git commit -m "Add email templates with disclaimer and unsubscribe footer"
 ### Task 3: Email sending boundary
 
 **Files:**
-- Create: `src/email/send.ts`
+- Create: `src/email/send.ts`, `tests/helpers.ts`
 - Test: `tests/send.test.ts`
 
 **Interfaces:**
@@ -570,9 +580,34 @@ git commit -m "Add email templates with disclaimer and unsubscribe footer"
 
 This is the **only** file that names an email provider. Swapping Resend for SES must touch nothing else.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Create the shared test helper**
 
-Create `tests/send.test.ts`:
+Every test file in this project stubs `fetch`. Declaring the mock inline as
+`vi.fn(async () => ...)` types `mock.calls` as `[]`, so any test that inspects the request
+fails `tsc --noEmit`. This helper keeps the call tuple typed. Create `tests/helpers.ts`:
+
+```ts
+import { vi } from 'vitest';
+
+export type FetchHandler = (url: string, init?: RequestInit) => Promise<Response>;
+
+/** Stubs global fetch and returns the mock with `mock.calls` correctly typed. */
+export function stubFetch(handler: FetchHandler) {
+  const mock = vi.fn(handler);
+  vi.stubGlobal('fetch', mock);
+  return mock;
+}
+
+export function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status });
+}
+```
+
+- [ ] **Step 2: Write the failing test**
+
+Create `tests/send.test.ts`. The assertions below are the requirement; the mock plumbing is
+a starting point — stub fetch through `stubFetch`/`jsonResponse` from Step 1 rather than
+inline `vi.fn`, so `mock.calls[0]` stays typed and `tsc --noEmit` passes:
 
 ```ts
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -594,7 +629,7 @@ const email = {
   unsubUrl: 'https://masonstrade.com/unsubscribe?t=abc',
 };
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); });
 
 describe('sendBatch', () => {
   it('posts to the provider with the idempotency key and returns per-recipient results', async () => {
@@ -789,7 +824,7 @@ Create `tests/validate.test.ts`:
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { hasMxRecord, isValidEmailSyntax } from '../src/validate';
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); });
 
 describe('isValidEmailSyntax', () => {
   it.each(['a@b.co', 'first.last+tag@sub.example.com'])('accepts %s', (v) => {
@@ -980,7 +1015,7 @@ beforeEach(async () => {
   );
 });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); });
 
 function post(body: unknown, ip = '203.0.113.1') {
   return worker.fetch(
@@ -1612,7 +1647,7 @@ beforeEach(async () => {
   );
 });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); });
 
 async function seed(email: string, createdAt: number, status = 'pending_approval') {
   await env.DB.prepare(
@@ -2204,7 +2239,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { transcribeVoice } from '../src/transcribe';
 import type { Env } from '../src/types';
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); });
 
 function envWith(aiResult: unknown): Env {
   return {
@@ -2386,7 +2421,7 @@ beforeEach(async () => {
   await env.DB.prepare('DELETE FROM send_log').run();
 });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); });
 
 async function seedApproved(count: number) {
   for (let i = 0; i < count; i++) {
@@ -2723,7 +2758,7 @@ beforeEach(async () => {
   );
 });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); });
 
 const testEnv = () =>
   ({ ...env, TELEGRAM_WEBHOOK_SECRET: SECRET, OPERATOR_CHAT_ID: OPERATOR }) as any;
