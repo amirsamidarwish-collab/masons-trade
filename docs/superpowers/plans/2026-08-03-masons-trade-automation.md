@@ -59,7 +59,7 @@ Read `CLAUDE.md` and `docs/superpowers/specs/2026-08-03-masons-trade-automation-
 ### Task 1: Scaffold, schema and test harness
 
 **Files:**
-- Create: `package.json`, `tsconfig.json`, `wrangler.toml`, `vitest.config.ts`, `migrations/0001_init.sql`, `src/types.ts`, `src/index.ts`
+- Create: `package.json`, `tsconfig.json`, `wrangler.toml`, `vitest.config.ts`, `migrations/0001_init.sql`, `src/types.ts`, `src/index.ts`, `tests/env.d.ts`
 - Test: `tests/health.test.ts`
 
 **Interfaces:**
@@ -84,7 +84,7 @@ Read `CLAUDE.md` and `docs/superpowers/specs/2026-08-03-masons-trade-automation-
     "hono": "^4.6.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.5.0",
+    "@cloudflare/vitest-pool-workers": "^0.8.1",
     "@cloudflare/workers-types": "^4.20240925.0",
     "typescript": "^5.6.0",
     "vitest": "~2.0.5",
@@ -272,7 +272,22 @@ export default defineWorkersConfig({
 });
 ```
 
-- [ ] **Step 8: Write the failing test**
+- [ ] **Step 8: Declare the test environment types**
+
+Without this, `env.DB` and `env.TEST_MIGRATIONS` are untyped in every test file in the
+project. Create `tests/env.d.ts`:
+
+```ts
+import type { Env } from '../src/types';
+
+declare module 'cloudflare:test' {
+  interface ProvidedEnv extends Env {
+    TEST_MIGRATIONS: D1Migration[];
+  }
+}
+```
+
+- [ ] **Step 9: Write the failing test**
 
 Create `tests/health.test.ts`:
 
@@ -282,7 +297,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import worker from '../src/index';
 
 beforeAll(async () => {
-  await applyD1Migrations(env.DB, (env as any).TEST_MIGRATIONS);
+  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 });
 
 describe('health', () => {
@@ -298,7 +313,7 @@ describe('health', () => {
 });
 ```
 
-- [ ] **Step 9: Run the test to verify it fails**
+- [ ] **Step 10: Run the test to verify it fails**
 
 ```bash
 npx vitest run tests/health.test.ts
@@ -306,7 +321,7 @@ npx vitest run tests/health.test.ts
 
 Expected: FAIL — `src/index.ts` has no default export yet.
 
-- [ ] **Step 10: Write `src/index.ts`**
+- [ ] **Step 11: Write `src/index.ts`**
 
 ```ts
 import { Hono } from 'hono';
@@ -324,7 +339,7 @@ export default {
 } satisfies ExportedHandler<Env>;
 ```
 
-- [ ] **Step 11: Run the test to verify it passes**
+- [ ] **Step 12: Run the test to verify it passes**
 
 ```bash
 npx vitest run tests/health.test.ts
@@ -332,7 +347,7 @@ npx vitest run tests/health.test.ts
 
 Expected: PASS, 1 test.
 
-- [ ] **Step 12: Commit**
+- [ ] **Step 13: Commit**
 
 ```bash
 git add -A
@@ -936,7 +951,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import worker from '../src/index';
 
 beforeAll(async () => {
-  await applyD1Migrations(env.DB, (env as any).TEST_MIGRATIONS);
+  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 });
 
 beforeEach(async () => {
@@ -1573,7 +1588,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { APPROVAL_DELAY_MS, runApprovalSweep } from '../src/cron';
 
 beforeAll(async () => {
-  await applyD1Migrations(env.DB, (env as any).TEST_MIGRATIONS);
+  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 });
 
 beforeEach(async () => {
@@ -1756,7 +1771,7 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import worker from '../src/index';
 
 beforeAll(async () => {
-  await applyD1Migrations(env.DB, (env as any).TEST_MIGRATIONS);
+  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 });
 
 beforeEach(async () => {
@@ -2349,7 +2364,7 @@ const trade: Trade = {
 };
 
 beforeAll(async () => {
-  await applyD1Migrations(env.DB, (env as any).TEST_MIGRATIONS);
+  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 });
 
 beforeEach(async () => {
@@ -2682,7 +2697,7 @@ const SECRET = 'webhook-secret';
 const OPERATOR = '555001';
 
 beforeAll(async () => {
-  await applyD1Migrations(env.DB, (env as any).TEST_MIGRATIONS);
+  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 });
 
 beforeEach(async () => {

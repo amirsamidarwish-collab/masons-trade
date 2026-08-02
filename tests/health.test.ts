@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import worker from '../src/index';
 
 beforeAll(async () => {
-  await applyD1Migrations(env.DB, (env as any).TEST_MIGRATIONS);
+  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 });
 
 describe('health', () => {
