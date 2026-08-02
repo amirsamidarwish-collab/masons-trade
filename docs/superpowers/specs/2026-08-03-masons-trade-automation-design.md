@@ -160,6 +160,16 @@ immediately.
 - Emails built as real semantic text, never image-based layouts — required for screen
   readers, and preferred by spam filters.
 
+## Email content
+
+Three templates are needed: "under review", "approved", and the trade broadcast. The final
+wording is to be supplied by the site owner; implementation uses clearly-marked placeholder
+copy until then, and the copy is not invented silently.
+
+Every email carries the disclaimer already present on the site — that the information is not
+financial advice, that no client funds are managed, and that each recipient is responsible
+for their own trading decisions — along with the unsubscribe link.
+
 ## Site integration
 
 The existing `masons-trade.html` fakes success: it hides the form and shows the confirmation
