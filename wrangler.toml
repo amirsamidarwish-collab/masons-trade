@@ -12,6 +12,16 @@ migrations_dir = "migrations"
 [ai]
 binding = "AI"
 
+# Request-level rate limit, enforced at the edge before the handler runs.
+# The per-IP signup counter in D1 protects list quality; this protects cost,
+# because requests that never insert a row (duplicates, bad domains) do not
+# increment that counter.
+[[unsafe.bindings]]
+name = "SUBSCRIBE_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
+
 [triggers]
 crons = ["*/15 * * * *"]
 

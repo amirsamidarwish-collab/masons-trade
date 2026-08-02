@@ -25,6 +25,16 @@ subscribe.post('/subscribe', async (c) => {
   // Answer 200 so the bot cannot tell it was caught.
   if (body.company) return c.json({ ok: true });
 
+  // Request-level rate limit, enforced before any DNS lookup or DB read.
+  // The D1 per-IP counter below only increments on a successful insert, so it
+  // cannot bound the cost of requests that never insert a row (duplicates,
+  // bad domains, malformed addresses). This binding guards that gap.
+  const ipHash = await hashIp(c.req.header('CF-Connecting-IP') ?? 'unknown');
+  const edgeLimit = await c.env.SUBSCRIBE_LIMITER.limit({ key: ipHash });
+  if (!edgeLimit.success) {
+    return c.json({ ok: false, error: 'Too many requests. Try again later.' }, 429);
+  }
+
   const email = (body.email ?? '').trim().toLowerCase();
   if (!isValidEmailSyntax(email)) {
     return c.json({ ok: false, error: 'Enter a valid email address.' }, 400);
@@ -36,7 +46,6 @@ subscribe.post('/subscribe', async (c) => {
   }
 
   const now = Date.now();
-  const ipHash = await hashIp(c.req.header('CF-Connecting-IP') ?? 'unknown');
   const recent = await countRecentSignupsFromIp(c.env.DB, ipHash, now - RATE_LIMIT_WINDOW_MS);
   if (recent >= RATE_LIMIT_MAX) {
     return c.json({ ok: false, error: 'Too many requests. Try again later.' }, 429);

@@ -140,6 +140,16 @@ migrations_dir = "migrations"
 [ai]
 binding = "AI"
 
+# Request-level rate limit, enforced at the edge before the handler runs.
+# The per-IP signup counter in D1 protects list quality; this protects cost,
+# because requests that never insert a row (duplicates, bad domains) do not
+# increment that counter.
+[[unsafe.bindings]]
+name = "SUBSCRIBE_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
+
 [triggers]
 crons = ["*/15 * * * *"]
 
@@ -198,9 +208,14 @@ CREATE INDEX idx_send_log_pending ON send_log (trade_id, status);
 - [ ] **Step 5: Create `src/types.ts`**
 
 ```ts
+export interface RateLimiter {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
+
 export interface Env {
   DB: D1Database;
   AI: Ai;
+  SUBSCRIBE_LIMITER: RateLimiter;
   DRY_RUN: string;
   SITE_ORIGIN: string;
   FROM_EMAIL: string;

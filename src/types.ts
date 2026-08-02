@@ -1,3 +1,7 @@
+export interface RateLimiter {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
+
 export interface Env {
   DB: D1Database;
   AI: Ai;
@@ -9,6 +13,7 @@ export interface Env {
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_WEBHOOK_SECRET: string;
   OPERATOR_CHAT_ID: string;
+  SUBSCRIBE_LIMITER: RateLimiter;
 }
 
 export type SubscriberStatus =

@@ -1,22 +1,23 @@
 import { env, applyD1Migrations } from 'cloudflare:test';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../src/index';
+import { hashIp } from '../src/validate';
+import { stubFetch } from './helpers';
 
 beforeAll(async () => {
   await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 });
 
+let fetchMock: ReturnType<typeof stubFetch>;
+
 beforeEach(async () => {
   await env.DB.prepare('DELETE FROM subscribers').run();
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (url: string) => {
-      if (String(url).includes('dns-query')) {
-        return new Response(JSON.stringify({ Answer: [{ type: 15 }] }));
-      }
-      return new Response(JSON.stringify({ data: [{ id: 'e1' }] }), { status: 200 });
-    }),
-  );
+  fetchMock = stubFetch(async (url) => {
+    if (String(url).includes('dns-query')) {
+      return new Response(JSON.stringify({ Answer: [{ type: 15 }] }));
+    }
+    return new Response(JSON.stringify({ data: [{ id: 'e1' }] }), { status: 200 });
+  });
 });
 
 afterEach(() => { vi.restoreAllMocks(); });
@@ -72,5 +73,27 @@ describe('POST /subscribe', () => {
   it('rate limits a single IP after five signups', async () => {
     for (let i = 0; i < 5; i++) await post({ email: `u${i}@example.com` });
     expect((await post({ email: 'u5@example.com' })).status).toBe(429);
+  });
+
+  it('rejects at the edge limiter before performing an MX lookup', async () => {
+    const ip = '198.51.100.7';
+    const ipHash = await hashIp(ip);
+
+    // Exhaust the edge limiter's budget directly via the binding, without
+    // going through the HTTP endpoint, so this test isolates the limiter
+    // check itself rather than depending on 20 round trips through Hono.
+    for (let i = 0; i < 20; i++) {
+      const result = await env.SUBSCRIBE_LIMITER.limit({ key: ipHash });
+      expect(result.success).toBe(true);
+    }
+
+    const res = await post({ email: 'blocked@example.com' }, ip);
+    expect(res.status).toBe(429);
+
+    const dnsQueries = fetchMock.mock.calls.filter(([url]) => String(url).includes('dns-query'));
+    expect(dnsQueries).toHaveLength(0);
+
+    const row = await env.DB.prepare('SELECT COUNT(*) AS n FROM subscribers').first<{ n: number }>();
+    expect(row?.n).toBe(0);
   });
 });
