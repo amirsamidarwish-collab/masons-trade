@@ -80,10 +80,46 @@ The entire trade-input path exists in its current shape because of this:
 **The site's existing visual styling is not to be modified.** Wire up the form, leave the
 design alone.
 
+## If you are an agent asked to "set this up" or "connect it"
+
+Read [`SETUP.md`](SETUP.md) and work through it in order. It is the runbook. Before you start,
+know which half of it you can actually do.
+
+**You can do these yourself:**
+
+- `npm install`, `npm test` (expect 158 passing), `npm run typecheck`
+- Create the D1 database (`npx wrangler d1 create masons-trade`) and put the printed
+  `database_id` into `wrangler.toml`
+- Apply migrations (`npm run migrate:remote`)
+- Store secrets with `wrangler secret put` — **once the human has given you the values**
+- Edit the `[vars]` in `wrangler.toml` and the `ENDPOINT` constant in `site/index.html`
+- `npm run deploy`, register the Telegram webhook, and `npx wrangler tail` to debug
+
+**You cannot do these. Ask the human and wait — do not improvise a substitute:**
+
+- Buying a domain, or adding DNS records at a registrar
+- Creating a Resend account, or verifying a sending domain
+- Messaging @BotFather to create the bot — it needs a real Telegram account
+- Getting the operator's chat ID — he has to message the bot first
+- The VoiceOver check in SETUP.md step 7. Only the operator can tell you whether the bot
+  actually reads well aloud, and that is the point of the whole design.
+
+**Do not turn `DRY_RUN` off as part of setup.** While it is `"true"`, every email is redirected to
+one test inbox and nobody real is contacted. Turning it off is a deliberate go-live decision the
+human makes *after* the step 7 tests pass, and the go-live gate in SETUP.md must be closed first.
+
+**Do not "fix" the failing bounce webhook by removing the guard.** `src/routes/bounce.ts` returns
+`501` whenever `DRY_RUN` is not `"true"`. That is intentional — see the KNOWN OPEN RISK above.
+
+If a test fails, do not adjust the test to match the code. Several tests here exist because they
+caught a real bug; three were found to pass for the wrong reason during the build. Report the
+failure and ask.
+
 ## Secrets
 
 Never committed. Set with `wrangler secret put`: Telegram bot token, Telegram webhook
-secret, operator chat ID, email provider API key.
+secret, operator chat ID, email provider API key. Locally, copy `.dev.vars.example` to
+`.dev.vars` (gitignored) instead.
 
 ## Conventions
 
