@@ -18,12 +18,16 @@ subscribe.use('/subscribe', cors({ origin: '*', allowMethods: ['POST', 'OPTIONS'
 
 subscribe.post('/subscribe', async (c) => {
   const body = await c.req
-    .json<{ email?: string; company?: string }>()
-    .catch(() => ({}) as { email?: string; company?: string });
+    .json<{ email?: string; subscribe_hp?: string }>()
+    .catch(() => ({}) as { email?: string; subscribe_hp?: string });
 
-  // Honeypot: `company` is hidden from humans, so anything in it is a bot.
+  // Honeypot: `subscribe_hp` is hidden from humans, so anything in it is a
+  // bot. The name is deliberately meaningless — a field called `company`
+  // is exactly what browser/password-manager autofill heuristics target,
+  // and `autocomplete="off"` is widely ignored, so a real visitor with
+  // saved autofill could have it silently filled and be wrongly dropped.
   // Answer 200 so the bot cannot tell it was caught.
-  if (body.company) return c.json({ ok: true });
+  if (body.subscribe_hp) return c.json({ ok: true });
 
   // Request-level rate limit, enforced before any DNS lookup or DB read.
   // The D1 per-IP counter below only increments on a successful insert, so it

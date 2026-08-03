@@ -53,10 +53,18 @@ describe('POST /subscribe', () => {
   });
 
   it('silently drops a submission that filled the honeypot', async () => {
-    const res = await post({ email: 'bot@example.com', company: 'spam' });
+    const res = await post({ email: 'bot@example.com', subscribe_hp: 'spam' });
     expect(res.status).toBe(200);
     const row = await env.DB.prepare('SELECT COUNT(*) AS n FROM subscribers').first<{ n: number }>();
     expect(row?.n).toBe(0);
+  });
+
+  it('does not treat a stray company field as the honeypot', async () => {
+    const res = await post({ email: 'real@example.com', company: 'Acme Ltd' }, '203.0.113.99');
+    expect(res.status).toBe(200);
+
+    const row = await env.DB.prepare('SELECT COUNT(*) AS n FROM subscribers').first<{ n: number }>();
+    expect(row?.n).toBe(1);
   });
 
   it('returns an identical response for a duplicate, so the list cannot be enumerated', async () => {
