@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from './types';
 import { subscribe } from './routes/subscribe';
+import { runApprovalSweep } from './cron';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -9,7 +10,7 @@ app.route('/', subscribe);
 
 export default {
   fetch: app.fetch,
-  async scheduled(_event: ScheduledController, _env: Env, _ctx: ExecutionContext) {
-    // Approval sweep is wired in Task 6.
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(runApprovalSweep(env, event.scheduledTime));
   },
 } satisfies ExportedHandler<Env>;
