@@ -53,6 +53,9 @@ The entire trade-input path exists in its current shape because of this:
   **This must be closed before the first real send** — see the go-live gate in Task 14 of the
   plan. Fix is Svix signature verification against a `RESEND_WEBHOOK_SECRET`. Do not treat this
   as settled just because the code has shipped this way for a while.
+  There is a code-level failsafe, not just this paragraph: `bounce.ts` returns `501` on every
+  request whenever `DRY_RUN` is not `'true'`, so going live without signature verification fails
+  loudly (webhook calls start erroring) instead of silently emptying the list.
 - Unsubscribe is split by verb on purpose: `GET` renders a confirm button and mutates nothing,
   `POST` performs the removal. Mail scanners prefetch links, and a mutating GET lets them
   unsubscribe real people. Gmail's one-click already POSTs, so it stays instant.

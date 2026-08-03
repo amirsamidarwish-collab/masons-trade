@@ -50,9 +50,12 @@ describe('unsubscribe', () => {
     expect(body).not.toContain('Unsubscribe');
   });
 
-  it('is safe to call twice', async () => {
-    await call('/unsubscribe?t=tok123');
-    expect((await call('/unsubscribe?t=tok123')).status).toBe(200);
+  it('is safe to POST twice', async () => {
+    expect((await call('/unsubscribe?t=tok123', 'POST')).status).toBe(200);
+    expect((await call('/unsubscribe?t=tok123', 'POST')).status).toBe(200);
+
+    const row = await env.DB.prepare('SELECT status FROM subscribers').first<any>();
+    expect(row.status).toBe('unsubscribed');
   });
 });
 
@@ -84,5 +87,21 @@ describe('bounce webhook', () => {
     );
     const row = await env.DB.prepare('SELECT status FROM subscribers').first<any>();
     expect(row.status).toBe('unsubscribed');
+  });
+
+  it('refuses to process webhooks once DRY_RUN is off, until signatures are verified', async () => {
+    const res = await worker.fetch(
+      new Request('https://example.com/webhooks/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'email.bounced', data: { to: ['a@example.com'] } }),
+      }),
+      { ...env, DRY_RUN: 'false' } as any,
+      {} as ExecutionContext,
+    );
+    expect(res.status).toBe(501);
+
+    const row = await env.DB.prepare('SELECT status FROM subscribers').first<any>();
+    expect(row.status).toBe('approved');
   });
 });

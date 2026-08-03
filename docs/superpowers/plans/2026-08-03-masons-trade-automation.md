@@ -3258,6 +3258,13 @@ npx wrangler d1 execute masons-trade --remote --command "UPDATE subscribers SET 
 > live. Before the first real send: add a `RESEND_WEBHOOK_SECRET` secret, verify the Svix headers
 > (`svix-id`, `svix-timestamp`, `svix-signature`) on every request, and reject anything that fails.
 > Do not complete the remaining steps of this task with the endpoint still open.
+>
+> There is a code-level failsafe backing this gate: `bounce.ts` checks `DRY_RUN` before doing
+> anything else and returns `501` whenever it is not exactly `'true'`. That means bounce/complaint
+> processing will simply stop working — return `501` to the provider — the moment Step 6 sets
+> `DRY_RUN = "false"`, until the Svix verification above is actually implemented and this check
+> is updated to depend on it instead. Treat the `501`s after go-live as the expected signal that
+> this gate has not been closed yet, not as a bug to route around.
 
 Blocked until the site owner provides the domain. Then:
 
