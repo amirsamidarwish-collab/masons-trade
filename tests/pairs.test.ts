@@ -22,6 +22,17 @@ describe('resolvePair', () => {
   it('returns null when no pair is present', () => {
     expect(resolvePair('buy at 1.0850')).toBe(null);
   });
+
+  it.each([
+    ['eurodollar', 'EURUSD'],
+    ['pounddollar', 'GBPUSD'],
+    ['dollaryen', 'USDJPY'],
+    ['aussiedollar', 'AUDUSD'],
+    ['ustech100', 'NAS100'],
+    ['dowjones', 'US30'],
+  ])('resolves the spaceless form %s without colliding', (input, expected) => {
+    expect(resolvePair(input)).toBe(expected);
+  });
 });
 
 describe('displayPair', () => {

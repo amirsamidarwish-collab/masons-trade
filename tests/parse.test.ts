@@ -185,7 +185,7 @@ describe('parseTrade', () => {
   });
 
   it('never reads "by" as Buy when an explicit direction is present', () => {
-    const r = parseTrade('gold sell at 2350.50 tp 2340.00 sl 2360.00 note close by friday');
+    const r = parseTrade('gold sell by market at 2350.50 tp 2340.00 sl 2360.00');
     expect(r.ok && r.trade.direction).toBe('Sell');
   });
 });
