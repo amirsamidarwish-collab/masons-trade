@@ -207,4 +207,12 @@ describe('telegram webhook trade flow', () => {
     const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM send_log WHERE status = 'sent'").first<{ n: number }>();
     expect(row?.n).toBe(0);
   });
+
+  it('leaves exactly one draft live after recording two trades', async () => {
+    await hook(textUpdate('gold buy at 2350.50 tp 2360.00 sl 2340.00'));
+    await hook(textUpdate('cable sell at 1.2700 tp 1.2650 sl 1.2720'));
+
+    const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM trades WHERE status = 'draft'").first<{ n: number }>();
+    expect(row?.n).toBe(1);
+  });
 });

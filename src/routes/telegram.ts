@@ -6,10 +6,9 @@ import { parseTrade } from '../trade/parse';
 import { transcribeVoice } from '../transcribe';
 import {
   cancelDraft,
-  cancelOutstandingDrafts,
   claimDraft,
   countApproved,
-  createDraft,
+  createDraftSupersedingOthers,
 } from '../db/trades';
 import { broadcastTrade } from '../broadcast';
 
@@ -80,10 +79,10 @@ telegram.post('/telegram/webhook', async (c) => {
   }
 
   const count = await countApproved(c.env.DB);
-  // A trade left un-tapped must not stay claimable once a new one is recorded -
-  // otherwise an old message's Send button can still broadcast a stale trade later.
-  await cancelOutstandingDrafts(c.env.DB);
-  const draft = await createDraft(c.env.DB, parsed.trade, transcript, Date.now());
+  // Supersede-and-insert run as one D1 batch (one transaction) - done as two
+  // separate statements, concurrent voice notes could both find nothing to
+  // cancel and both insert, leaving two live Send buttons.
+  const draft = await createDraftSupersedingOthers(c.env.DB, parsed.trade, transcript, Date.now());
 
   await sendMessage(
     c.env,

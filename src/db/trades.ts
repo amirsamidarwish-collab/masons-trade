@@ -64,12 +64,37 @@ export async function cancelDraft(db: D1Database, token: string): Promise<void> 
 }
 
 /**
- * A draft the operator never resolved must not stay tappable. Recording a new
- * trade supersedes any outstanding one - otherwise an old message's Send button
- * still broadcasts a stale trade to the whole list days later.
+ * Supersede any unresolved draft and create the new one as ONE transaction.
+ * Done separately these race: two voice notes processed concurrently can both
+ * find nothing to cancel and both insert, leaving two live Send buttons - which
+ * is the stale-broadcast hazard this supersede exists to remove.
  */
-export async function cancelOutstandingDrafts(db: D1Database): Promise<void> {
-  await db.prepare("UPDATE trades SET status = 'cancelled' WHERE status = 'draft'").run();
+export async function createDraftSupersedingOthers(
+  db: D1Database,
+  trade: Trade,
+  transcript: string,
+  now: number,
+): Promise<StoredTrade> {
+  const token = crypto.randomUUID();
+  const [, inserted] = await db.batch<StoredTrade>([
+    db.prepare("UPDATE trades SET status = 'cancelled' WHERE status = 'draft'"),
+    db.prepare(
+      `INSERT INTO trades (pair, direction, entry, take_profit, stop_loss, note, transcript, status, draft_token, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
+       RETURNING id, pair, direction, entry, take_profit, stop_loss, note, status, draft_token`,
+    ).bind(
+      trade.pair,
+      trade.direction,
+      trade.entry,
+      trade.take_profit,
+      trade.stop_loss,
+      trade.note,
+      transcript,
+      token,
+      now,
+    ),
+  ]);
+  return inserted.results[0];
 }
 
 export async function countApproved(db: D1Database): Promise<number> {
