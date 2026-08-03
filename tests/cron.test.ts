@@ -37,6 +37,15 @@ describe('runApprovalSweep', () => {
     expect(row.approved_at).toBe(NOW);
   });
 
+  it('approves a subscriber at exactly the 30 hour mark', async () => {
+    await seed('exact@example.com', NOW - APPROVAL_DELAY_MS);
+
+    expect(await runApprovalSweep(env as any, NOW)).toBe(1);
+
+    const row = await env.DB.prepare('SELECT status FROM subscribers').first<any>();
+    expect(row.status).toBe('approved');
+  });
+
   it('leaves a subscriber one second short of the mark alone', async () => {
     await seed('young@example.com', NOW - APPROVAL_DELAY_MS + 1000);
 
