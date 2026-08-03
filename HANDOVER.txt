@@ -1,0 +1,99 @@
+MASON'S TRADE - WHAT YOU NEED TO DO
+
+
+This file is plain text on purpose, so it reads cleanly with a screen reader.
+There are no tables, no symbols used as decoration, and no emoji.
+
+The backend is finished and tested. Nothing is switched on yet. Nothing can
+reach a real person by accident, because a safety switch called DRY RUN is on
+and sends every email to a single test inbox instead.
+
+
+WHAT THIS SYSTEM DOES
+
+Someone puts their email into your site. They immediately get an email saying
+their application is under review. Thirty hours later they get an email saying
+they are approved. After that they receive your trades.
+
+You send a voice note to a Telegram bot. It is transcribed, read back to you
+for confirmation, and only after you tap Send does it go out to everyone.
+
+
+THREE THINGS TO GET FIRST
+
+You cannot start without these three.
+
+Number one. A domain name. Buy it from any registrar. Your emails have to be
+sent from your own domain, otherwise they land in spam. There is no way around
+this.
+
+Number two. An account at resend dot com. The free tier is enough to start.
+Add your domain there. It will give you DNS records. Paste those at your
+registrar and wait until Resend says your domain is verified. Do not carry on
+before it says verified.
+
+Number three. A Telegram bot. On Telegram, message BotFather. Send the word
+slash newbot and follow the prompts. Keep the token it gives you, it is a
+password. Then send one message to your new bot from your own phone. That is
+how the system learns your chat ID, and your chat ID is what stops anyone else
+being able to send trades to your subscribers.
+
+
+HOW TO SET IT UP
+
+Open Claude Code and give it this instruction. You can copy the paragraph
+below exactly.
+
+Clone https://github.com/amirsamidarwish-collab/masons-trade, read CLAUDE.md
+and SETUP.md, and set it up. I have the domain, the Resend API key, the
+Telegram bot token and my chat ID ready. Ask me for them when you need them.
+
+That is the end of the instruction to copy.
+
+The repository tells Claude Code which steps it is allowed to do on its own
+and which ones it has to stop and ask you for. It should not go off and guess.
+
+
+TWO THINGS THAT REALLY MATTER
+
+First. The safety switch. It is called DRY RUN and it is currently on. While
+it is on, every single email goes to one test inbox that you choose, and no
+subscriber is ever contacted. Test everything before it is turned off.
+Turning it off is the last step, not an early one.
+
+Second. Please test the bot yourself with VoiceOver.
+
+Everything about how the bot talks to you was built around a screen reader.
+There is no emoji anywhere, because VoiceOver would announce each one by name
+in the middle of a price. There is no bold or italic formatting, for the same
+reason. The lines are short and the pair and direction come first, so you hear
+what matters before the numbers. The Send button and the Cancel button are on
+separate rows, so a mistap cannot send a trade to everyone.
+
+None of that has ever been heard out loud by the people who built it. You are
+the only person who can say whether it actually works. If the read back is
+awkward, or it says something in a confusing order, or a button is hard to
+find, say so and it will be changed.
+
+
+IF SOMETHING GOES WRONG
+
+The full setup guide is in the file SETUP.md in the repository, and it has a
+troubleshooting section at the end. Your Claude Code can read it.
+
+The most common two problems are these. If the bot does not answer, the
+webhook is probably not registered or the chat ID does not match the account
+you are messaging from. If emails do not arrive, check that Resend still shows
+your domain as verified, and remember that while DRY RUN is on everything goes
+to the test inbox instead of the real recipient.
+
+
+ONE OPEN ITEM BEFORE YOU GO LIVE
+
+There is one security step that was deliberately left for you, because it
+needs the Resend account you have not created yet. It is written at the top of
+the go live section in SETUP.md.
+
+The system is built so that you cannot forget it by accident. If you turn off
+DRY RUN without doing that step, the part it affects starts returning errors
+loudly instead of failing silently. That is intentional.
