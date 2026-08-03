@@ -47,6 +47,15 @@ The entire trade-input path exists in its current shape because of this:
   signup, honeypot field, IP rate limiting, and pruning a subscriber on their *first* hard
   bounce. They are the only thing keeping dead addresses off the list.
 - `List-Unsubscribe` headers on every send. Bounce/complaint webhooks mark subscribers.
+- **KNOWN OPEN RISK — `POST /webhooks/email` is unauthenticated.** Anyone who finds the URL can
+  mark any address `bounced` or `unsubscribed` and silently empty the list. Accepted deliberately
+  on 2026-08-03 only because nothing is live yet (no domain, no real subscribers).
+  **This must be closed before the first real send** — see the go-live gate in Task 14 of the
+  plan. Fix is Svix signature verification against a `RESEND_WEBHOOK_SECRET`. Do not treat this
+  as settled just because the code has shipped this way for a while.
+- Unsubscribe is split by verb on purpose: `GET` renders a confirm button and mutates nothing,
+  `POST` performs the removal. Mail scanners prefetch links, and a mutating GET lets them
+  unsubscribe real people. Gmail's one-click already POSTs, so it stays instant.
 - Emails are semantic text, never image-based layouts.
 - All sending goes through the single `sendEmail()` module so the provider can be swapped
   quickly — the content category carries real AUP risk. See the spec.

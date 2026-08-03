@@ -1440,6 +1440,17 @@ git commit -m "Add spoken number and currency pair parsing"
 
 The refusal path is the point of this task. A guessed stop-loss reaches every subscriber.
 
+> **Amended after review.** The Step 3 reference code below carried two defects, both found in
+> review and fixed in commit `095bd18`. The shipped `src/trade/parse.ts` is the source of truth:
+>
+> 1. **Note mis-slice.** The gate tested the normalised copy while the slice re-ran `indexOf` on
+>    the raw transcript. A transcript trailing off on `"note"` produced `slice(5)` — garbage that
+>    reached the read-back and the broadcast. Now one index, computed once, via `/\bnote\b/`.
+> 2. **The generic `'at'` entry label** could match inside `"take profit at X"`, which made the
+>    parser refuse while naming the wrong fields. Entry is now searched only before the first
+>    TP/SL label, filler words are stripped from captured values, and a single unlabelled number
+>    in the entry region is accepted while two or more refuse.
+
 - [ ] **Step 1: Write the failing test**
 
 Create `tests/parse.test.ts`:
@@ -1640,6 +1651,14 @@ git commit -m "Add trade transcript parser that refuses ambiguous input"
 - Produces: `runApprovalSweep(env: Env, now: number): Promise<number>` — returns how many were approved
 
 `now` is a parameter so the 30-hour boundary is tested without waiting.
+
+> **Amended after review.** The Step 3 reference code below selected rows, updated them, then
+> emailed from the *pre-update* snapshot, discarding what the guarded `UPDATE` actually changed.
+> The guard therefore prevented a double status flip but not a double email — and once Task 8
+> lands, someone unsubscribing inside the SELECT-to-UPDATE window would keep the correct status
+> and still be mailed. Fixed in commit noted in the ledger: a single
+> `UPDATE ... WHERE id IN (SELECT ...) RETURNING ...` makes the set of approved rows and the set
+> of emailed rows the same set by construction. The shipped `src/cron.ts` is the source of truth.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3232,6 +3251,13 @@ npx wrangler d1 execute masons-trade --remote --command "UPDATE subscribers SET 
 ```
 
 - [ ] **Step 6: Go live — only after the domain exists**
+
+> **BLOCKING GATE — close the open webhook risk first.** `POST /webhooks/email` currently accepts
+> unauthenticated requests, so anyone who finds the URL can mark arbitrary addresses `bounced` or
+> `unsubscribed` and empty the list. This was accepted on 2026-08-03 solely because nothing was
+> live. Before the first real send: add a `RESEND_WEBHOOK_SECRET` secret, verify the Svix headers
+> (`svix-id`, `svix-timestamp`, `svix-signature`) on every request, and reject anything that fails.
+> Do not complete the remaining steps of this task with the endpoint still open.
 
 Blocked until the site owner provides the domain. Then:
 

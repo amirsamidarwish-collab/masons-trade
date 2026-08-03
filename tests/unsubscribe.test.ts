@@ -22,10 +22,14 @@ function call(path: string, method = 'GET') {
 }
 
 describe('unsubscribe', () => {
-  it('marks the subscriber unsubscribed on GET', async () => {
-    expect((await call('/unsubscribe?t=tok123')).status).toBe(200);
+  it('does not unsubscribe on GET, only offers a confirm button', async () => {
+    const res = await call('/unsubscribe?t=tok123');
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain('<form method="POST"');
+
     const row = await env.DB.prepare('SELECT status FROM subscribers').first<any>();
-    expect(row.status).toBe('unsubscribed');
+    expect(row.status).toBe('approved');
   });
 
   it('accepts a one-click POST from a mail client', async () => {
@@ -36,6 +40,14 @@ describe('unsubscribe', () => {
 
   it('returns 404 for an unknown token', async () => {
     expect((await call('/unsubscribe?t=nope')).status).toBe(404);
+  });
+
+  it('returns 404 for an unknown token on GET without disclosing anything', async () => {
+    const res = await call('/unsubscribe?t=nope');
+    expect(res.status).toBe(404);
+    const body = await res.text();
+    expect(body).not.toContain('<form');
+    expect(body).not.toContain('Unsubscribe');
   });
 
   it('is safe to call twice', async () => {
