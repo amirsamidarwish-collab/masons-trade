@@ -1,0 +1,35 @@
+name = "masons-trade"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "masons-trade"
+database_id = "96ffc4f8-659c-4189-ad57-bb99a2749528"
+migrations_dir = "migrations"
+
+[ai]
+binding = "AI"
+
+# Request-level rate limit, enforced at the edge before the handler runs.
+# The per-IP signup counter in D1 protects list quality; this protects cost,
+# because requests that never insert a row (duplicates, bad domains) do not
+# increment that counter.
+[[unsafe.bindings]]
+name = "SUBSCRIBE_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+[vars]
+DRY_RUN = "true"
+SITE_ORIGIN = "https://masonstrade.com"
+FROM_EMAIL = "Mason's Trade <noreply@masonstrade.com>"
+# Test-only inbox: while DRY_RUN is "true", EVERY email is redirected here
+# instead of the real recipient. Set this to your own address before testing -
+# nothing will reach you until you do. See SETUP.md.
+TEST_INBOX = "set-me@example.com"

@@ -24,6 +24,16 @@ Read `CLAUDE.md` and `docs/superpowers/specs/2026-08-03-masons-trade-automation-
 - **Never modify the visual styling in `site/index.html`.** Wire the form only.
 - Test time-dependent logic with an injected `now: number`. Never sleep in a test.
 - Secrets via `wrangler secret put`, never committed. Local dev secrets go in `.dev.vars` (gitignored).
+- **`npx tsc --noEmit` must be clean before every commit**, alongside the tests. `vitest run`
+  does not type-check, so a green suite proves nothing about types.
+- **Typing traps in test files.** The example test snippets in this plan are a starting
+  point, not verified TypeScript — apply these two rules when a snippet trips the type
+  checker:
+  - `afterEach(() => vi.restoreAllMocks())` returns a value where `void` is expected. Write
+    it with a block body: `afterEach(() => { vi.restoreAllMocks(); });`
+  - `vi.fn(async () => ...)` produces a mock whose `mock.calls` is typed `[]`, so indexing
+    `calls[0][1]` fails. Declare fetch mocks with `stubFetch` from `tests/helpers.ts`
+    (created in Task 3), which keeps `mock.calls` typed as `[string, RequestInit | undefined]`.
 
 ---
 
@@ -59,7 +69,7 @@ Read `CLAUDE.md` and `docs/superpowers/specs/2026-08-03-masons-trade-automation-
 ### Task 1: Scaffold, schema and test harness
 
 **Files:**
-- Create: `package.json`, `tsconfig.json`, `wrangler.toml`, `vitest.config.ts`, `migrations/0001_init.sql`, `src/types.ts`, `src/index.ts`
+- Create: `package.json`, `tsconfig.json`, `wrangler.toml`, `vitest.config.ts`, `migrations/0001_init.sql`, `src/types.ts`, `src/index.ts`, `tests/env.d.ts`
 - Test: `tests/health.test.ts`
 
 **Interfaces:**
@@ -84,7 +94,7 @@ Read `CLAUDE.md` and `docs/superpowers/specs/2026-08-03-masons-trade-automation-
     "hono": "^4.6.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.5.0",
+    "@cloudflare/vitest-pool-workers": "^0.8.1",
     "@cloudflare/workers-types": "^4.20240925.0",
     "typescript": "^5.6.0",
     "vitest": "~2.0.5",
@@ -129,6 +139,16 @@ migrations_dir = "migrations"
 
 [ai]
 binding = "AI"
+
+# Request-level rate limit, enforced at the edge before the handler runs.
+# The per-IP signup counter in D1 protects list quality; this protects cost,
+# because requests that never insert a row (duplicates, bad domains) do not
+# increment that counter.
+[[unsafe.bindings]]
+name = "SUBSCRIBE_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
 
 [triggers]
 crons = ["*/15 * * * *"]
@@ -188,9 +208,14 @@ CREATE INDEX idx_send_log_pending ON send_log (trade_id, status);
 - [ ] **Step 5: Create `src/types.ts`**
 
 ```ts
+export interface RateLimiter {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
+
 export interface Env {
   DB: D1Database;
   AI: Ai;
+  SUBSCRIBE_LIMITER: RateLimiter;
   DRY_RUN: string;
   SITE_ORIGIN: string;
   FROM_EMAIL: string;
@@ -272,7 +297,22 @@ export default defineWorkersConfig({
 });
 ```
 
-- [ ] **Step 8: Write the failing test**
+- [ ] **Step 8: Declare the test environment types**
+
+Without this, `env.DB` and `env.TEST_MIGRATIONS` are untyped in every test file in the
+project. Create `tests/env.d.ts`:
+
+```ts
+import type { Env } from '../src/types';
+
+declare module 'cloudflare:test' {
+  interface ProvidedEnv extends Env {
+    TEST_MIGRATIONS: D1Migration[];
+  }
+}
+```
+
+- [ ] **Step 9: Write the failing test**
 
 Create `tests/health.test.ts`:
 
@@ -282,7 +322,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import worker from '../src/index';
 
 beforeAll(async () => {
-  await applyD1Migrations(env.DB, (env as any).TEST_MIGRATIONS);
+  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 });
 
 describe('health', () => {
@@ -298,7 +338,7 @@ describe('health', () => {
 });
 ```
 
-- [ ] **Step 9: Run the test to verify it fails**
+- [ ] **Step 10: Run the test to verify it fails**
 
 ```bash
 npx vitest run tests/health.test.ts
@@ -306,7 +346,7 @@ npx vitest run tests/health.test.ts
 
 Expected: FAIL — `src/index.ts` has no default export yet.
 
-- [ ] **Step 10: Write `src/index.ts`**
+- [ ] **Step 11: Write `src/index.ts`**
 
 ```ts
 import { Hono } from 'hono';
@@ -324,7 +364,7 @@ export default {
 } satisfies ExportedHandler<Env>;
 ```
 
-- [ ] **Step 11: Run the test to verify it passes**
+- [ ] **Step 12: Run the test to verify it passes**
 
 ```bash
 npx vitest run tests/health.test.ts
@@ -332,7 +372,7 @@ npx vitest run tests/health.test.ts
 
 Expected: PASS, 1 test.
 
-- [ ] **Step 12: Commit**
+- [ ] **Step 13: Commit**
 
 ```bash
 git add -A
@@ -543,7 +583,7 @@ git commit -m "Add email templates with disclaimer and unsubscribe footer"
 ### Task 3: Email sending boundary
 
 **Files:**
-- Create: `src/email/send.ts`
+- Create: `src/email/send.ts`, `tests/helpers.ts`
 - Test: `tests/send.test.ts`
 
 **Interfaces:**
@@ -555,9 +595,34 @@ git commit -m "Add email templates with disclaimer and unsubscribe footer"
 
 This is the **only** file that names an email provider. Swapping Resend for SES must touch nothing else.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Create the shared test helper**
 
-Create `tests/send.test.ts`:
+Every test file in this project stubs `fetch`. Declaring the mock inline as
+`vi.fn(async () => ...)` types `mock.calls` as `[]`, so any test that inspects the request
+fails `tsc --noEmit`. This helper keeps the call tuple typed. Create `tests/helpers.ts`:
+
+```ts
+import { vi } from 'vitest';
+
+export type FetchHandler = (url: string, init?: RequestInit) => Promise<Response>;
+
+/** Stubs global fetch and returns the mock with `mock.calls` correctly typed. */
+export function stubFetch(handler: FetchHandler) {
+  const mock = vi.fn(handler);
+  vi.stubGlobal('fetch', mock);
+  return mock;
+}
+
+export function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status });
+}
+```
+
+- [ ] **Step 2: Write the failing test**
+
+Create `tests/send.test.ts`. The assertions below are the requirement; the mock plumbing is
+a starting point — stub fetch through `stubFetch`/`jsonResponse` from Step 1 rather than
+inline `vi.fn`, so `mock.calls[0]` stays typed and `tsc --noEmit` passes:
 
 ```ts
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -576,9 +641,10 @@ const email = {
   subject: 'Hello',
   html: '<p>Hello</p>',
   text: 'Hello',
+  unsubUrl: 'https://masonstrade.com/unsubscribe?t=abc',
 };
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); });
 
 describe('sendBatch', () => {
   it('posts to the provider with the idempotency key and returns per-recipient results', async () => {
@@ -595,7 +661,24 @@ describe('sendBatch', () => {
     expect((init.headers as Record<string, string>)['Idempotency-Key']).toBe('trade-1-chunk-0');
     const body = JSON.parse(init.body as string);
     expect(body[0].to).toEqual(['real@example.com']);
+    expect(body[0].headers['List-Unsubscribe']).toBe(
+      '<https://masonstrade.com/unsubscribe?t=abc>',
+    );
     expect(body[0].headers['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click');
+  });
+
+  it('sends the unsubscribe headers even when the recipient is redirected by DRY_RUN', async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ data: [{ id: 'e1' }] }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await sendBatch({ ...baseEnv, DRY_RUN: 'true' } as Env, [email], 'k');
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body[0].headers['List-Unsubscribe']).toBe(
+      '<https://masonstrade.com/unsubscribe?t=abc>',
+    );
   });
 
   it('redirects every recipient to the test inbox when DRY_RUN is on', async () => {
@@ -647,7 +730,8 @@ export interface OutgoingEmail {
   subject: string;
   html: string;
   text: string;
-  unsubUrl?: string;
+  /** Required: every send must carry List-Unsubscribe. Not optional by design. */
+  unsubUrl: string;
 }
 
 export interface SendResult {
@@ -681,14 +765,8 @@ export async function sendBatch(
     html: e.html,
     text: e.text,
     headers: {
-      ...(e.unsubUrl
-        ? {
-            'List-Unsubscribe': `<${e.unsubUrl}>`,
-            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-          }
-        : {
-            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-          }),
+      'List-Unsubscribe': `<${e.unsubUrl}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
     },
   }));
 
@@ -761,7 +839,7 @@ Create `tests/validate.test.ts`:
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { hasMxRecord, isValidEmailSyntax } from '../src/validate';
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); });
 
 describe('isValidEmailSyntax', () => {
   it.each(['a@b.co', 'first.last+tag@sub.example.com'])('accepts %s', (v) => {
@@ -907,6 +985,13 @@ export async function markUnsubscribed(db: D1Database, id: number): Promise<void
   await db.prepare("UPDATE subscribers SET status = 'unsubscribed' WHERE id = ?").bind(id).run();
 }
 
+export async function markUnsubscribedByEmail(db: D1Database, email: string): Promise<void> {
+  await db
+    .prepare("UPDATE subscribers SET status = 'unsubscribed' WHERE email = ?")
+    .bind(email.toLowerCase())
+    .run();
+}
+
 export async function markBounced(db: D1Database, email: string): Promise<void> {
   await db
     .prepare("UPDATE subscribers SET status = 'bounced' WHERE email = ?")
@@ -929,7 +1014,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import worker from '../src/index';
 
 beforeAll(async () => {
-  await applyD1Migrations(env.DB, (env as any).TEST_MIGRATIONS);
+  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 });
 
 beforeEach(async () => {
@@ -945,7 +1030,7 @@ beforeEach(async () => {
   );
 });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); });
 
 function post(body: unknown, ip = '203.0.113.1') {
   return worker.fetch(
@@ -1355,6 +1440,47 @@ git commit -m "Add spoken number and currency pair parsing"
 
 The refusal path is the point of this task. A guessed stop-loss reaches every subscriber.
 
+> **Amended after review.** The Step 3 reference code below carried two defects, both found in
+> review and fixed in commit `095bd18`, plus a third found later during Task 9 review once the
+> note started carrying real free text. The shipped `src/trade/parse.ts` is the source of truth:
+>
+> 1. **Note mis-slice.** The gate tested the normalised copy while the slice re-ran `indexOf` on
+>    the raw transcript. A transcript trailing off on `"note"` produced `slice(5)` — garbage that
+>    reached the read-back and the broadcast. Now one index, computed once, via `/\bnote\b/`.
+> 2. **The generic `'at'` entry label** could match inside `"take profit at X"`, which made the
+>    parser refuse while naming the wrong fields. Entry is now searched only before the first
+>    TP/SL label, filler words are stripped from captured values, and a single unlabelled number
+>    in the entry region is accepted while two or more refuse.
+> 3. **Label lookups scanned the whole transcript, including the note.** A note that happened to
+>    contain an ordinary trading word matching a label alias — `"target"` (a `TP_LABELS` alias),
+>    or equally `"stop"`, `"entry"`, `"at"`, `"tp"` — silently truncated a real price during
+>    `valueAfter`'s stop-word scan and refused an otherwise well-formed trade, naming the wrong
+>    field as missing. The note is free text by definition and must never influence pair,
+>    direction, or price extraction. `parseTrade` now computes the note boundary
+>    (`fullText.search(/\bnote\b/)`) before any label work and confines `resolvePair`, the
+>    direction regex, and all three price lookups to the text before that boundary; note
+>    extraction itself is unaffected and still runs against the raw transcript.
+> 4. **Two more defects, found in the final whole-branch review of `feature/automation-v1` and
+>    fixed in fix wave A.** First, `parseSpokenNumber` concatenated any two adjacent numeral
+>    tokens into one fabricated price — `'2340 2350'` became `'23402350'`, and
+>    `'take profit 2360 2370'` (the operator correcting himself mid-sentence, a common dictation
+>    pattern) silently produced `'23602370'` instead of refusing. It now refuses whenever two
+>    consecutive numeral tokens appear with no point word between them; spoken word-digits
+>    (`'two three four five'` → `'2345'`) and numeral-plus-point-word (`'2340 point 50'` →
+>    `'2340.50'`) are unaffected. Second, `valueAfter` required the *entire* remainder of the
+>    transcript after the last labelled price to parse as one number, so any trailing word —
+>    `"send it"`, `"thanks"`, `"pips"`, `"ok"` — refused the whole trade and named a field the
+>    operator had in fact said, prompting him to re-record and hit the same refusal. `numbers.ts`
+>    now exports `isNumberToken` and `takeLeadingNumber`, which reads only the leading run of
+>    number tokens after a label; `valueAfter` accepts trailing non-numeric chatter and refuses
+>    only if a further *numeric* token follows the run (closing the first defect too, since
+>    `'2360 2370'` is two numeric tokens with no valid split). Leading filler words (`at`, `of`,
+>    `is`, `to`) are now stripped in a loop rather than once, so chained fillers
+>    (`"take profit is at 2360"`) no longer refuse either. Separately, a bare `'stop'` label
+>    immediately preceded by `buy`, `sell`, `long`, or `short` (`"buy stop"` / `"sell stop"`,
+>    standard pending-order phrasing) is now ignored in favour of a later, genuine stop-loss
+>    label, so it no longer truncates and loses the entry region.
+
 - [ ] **Step 1: Write the failing test**
 
 Create `tests/parse.test.ts`:
@@ -1556,6 +1682,14 @@ git commit -m "Add trade transcript parser that refuses ambiguous input"
 
 `now` is a parameter so the 30-hour boundary is tested without waiting.
 
+> **Amended after review.** The Step 3 reference code below selected rows, updated them, then
+> emailed from the *pre-update* snapshot, discarding what the guarded `UPDATE` actually changed.
+> The guard therefore prevented a double status flip but not a double email — and once Task 8
+> lands, someone unsubscribing inside the SELECT-to-UPDATE window would keep the correct status
+> and still be mailed. Fixed in commit noted in the ledger: a single
+> `UPDATE ... WHERE id IN (SELECT ...) RETURNING ...` makes the set of approved rows and the set
+> of emailed rows the same set by construction. The shipped `src/cron.ts` is the source of truth.
+
 - [ ] **Step 1: Write the failing test**
 
 Create `tests/cron.test.ts`:
@@ -1566,7 +1700,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { APPROVAL_DELAY_MS, runApprovalSweep } from '../src/cron';
 
 beforeAll(async () => {
-  await applyD1Migrations(env.DB, (env as any).TEST_MIGRATIONS);
+  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 });
 
 beforeEach(async () => {
@@ -1577,7 +1711,7 @@ beforeEach(async () => {
   );
 });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); });
 
 async function seed(email: string, createdAt: number, status = 'pending_approval') {
   await env.DB.prepare(
@@ -1734,7 +1868,7 @@ git commit -m "Add 30 hour approval sweep on cron"
 - Test: `tests/unsubscribe.test.ts`
 
 **Interfaces:**
-- Consumes: `findByUnsubToken`, `markUnsubscribed`, `markBounced`
+- Consumes: `findByUnsubToken`, `markUnsubscribed`, `markUnsubscribedByEmail`, `markBounced` (all from Task 4's `src/db/subscribers.ts`)
 - Produces: routes `GET /unsubscribe`, `POST /unsubscribe`, `POST /webhooks/email`
 
 `POST /unsubscribe` exists because `List-Unsubscribe-Post` makes Gmail POST the link.
@@ -1749,7 +1883,7 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import worker from '../src/index';
 
 beforeAll(async () => {
-  await applyD1Migrations(env.DB, (env as any).TEST_MIGRATIONS);
+  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 });
 
 beforeEach(async () => {
@@ -1833,13 +1967,13 @@ Expected: FAIL — routes return 404.
 - [ ] **Step 3: Write `src/routes/unsubscribe.ts`**
 
 ```ts
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import type { Env } from '../types';
 import { findByUnsubToken, markUnsubscribed } from '../db/subscribers';
 
 export const unsubscribe = new Hono<{ Bindings: Env }>();
 
-async function handle(c: any) {
+async function handle(c: Context<{ Bindings: Env }>) {
   const token = c.req.query('t') ?? '';
   const subscriber = await findByUnsubToken(c.env.DB, token);
   if (!subscriber) return c.text('This unsubscribe link is not valid.', 404);
@@ -1861,7 +1995,7 @@ unsubscribe.post('/unsubscribe', handle);
 ```ts
 import { Hono } from 'hono';
 import type { Env } from '../types';
-import { markBounced, markUnsubscribed, findByUnsubToken } from '../db/subscribers';
+import { markBounced, markUnsubscribedByEmail } from '../db/subscribers';
 
 export const bounce = new Hono<{ Bindings: Env }>();
 
@@ -1878,13 +2012,7 @@ bounce.post('/webhooks/email', async (c) => {
   if (body.type === 'email.bounced') {
     await markBounced(c.env.DB, to);
   } else if (body.type === 'email.complained') {
-    const row = await c.env.DB.prepare('SELECT unsub_token FROM subscribers WHERE email = ?')
-      .bind(to.toLowerCase())
-      .first<{ unsub_token: string }>();
-    if (row) {
-      const subscriber = await findByUnsubToken(c.env.DB, row.unsub_token);
-      if (subscriber) await markUnsubscribed(c.env.DB, subscriber.id);
-    }
+    await markUnsubscribedByEmail(c.env.DB, to);
   }
 
   return c.json({ ok: true });
@@ -1937,6 +2065,28 @@ git commit -m "Add unsubscribe route and bounce webhook pruning"
   - `formatRefusal(missing: string[]): string`
 
 Every constraint in this task is an accessibility requirement. Read the Global Constraints again before writing it.
+
+> **Amended after review.** The Step 3/4 reference code below carried two defects, both found
+> in review:
+>
+> 1. **`trade.note` reached VoiceOver unsanitised.** `note` is a raw slice of the transcript
+>    (or of typed fallback input, where iOS predictive text inserts emoji freely), and
+>    `formatTradeReadback` interpolated it verbatim. Since `sendMessage` sets no `parse_mode`,
+>    an emoji or `*`/`_`/backtick in a note would reach Telegram literally and VoiceOver would
+>    announce it by name in the middle of the prices — exactly what the no-emoji rule exists to
+>    prevent. Fixed at the source, not in `format.ts`: `src/trade/parse.ts` now runs the note
+>    through a `sanitiseNote()` step (strips `\p{Extended_Pictographic}` and `[*_`~]`, collapses
+>    whitespace, trims) before it ever becomes part of the `Trade`, so the value the operator
+>    confirms in the readback and the value that reaches the broadcast email are the same clean
+>    text. A note that is empty after sanitising becomes `null`, not `''`, since both the
+>    readback and the email template branch on falsiness.
+> 2. **`sendMessage` and `answerCallbackQuery` discarded the Telegram response.** Both awaited
+>    `fetch(...)` and returned `void`, so a blocked bot, unknown chat, or rate limit was
+>    indistinguishable from success — `getFileUrl` right below them already checked `res.ok`.
+>    Both now return `Promise<boolean>` (`res.ok`) instead of `Promise<void>`, still without
+>    throwing on a non-ok response and without logging the response body (the request URL
+>    embeds the bot token). The interface list above is superseded by this signature; the
+>    shipped `src/telegram/api.ts` and `src/trade/parse.ts` are the source of truth.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2175,7 +2325,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { transcribeVoice } from '../src/transcribe';
 import type { Env } from '../src/types';
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); });
 
 function envWith(aiResult: unknown): Env {
   return {
@@ -2348,7 +2498,7 @@ const trade: Trade = {
 };
 
 beforeAll(async () => {
-  await applyD1Migrations(env.DB, (env as any).TEST_MIGRATIONS);
+  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 });
 
 beforeEach(async () => {
@@ -2357,7 +2507,7 @@ beforeEach(async () => {
   await env.DB.prepare('DELETE FROM send_log').run();
 });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); });
 
 async function seedApproved(count: number) {
   for (let i = 0; i < count; i++) {
@@ -2681,7 +2831,7 @@ const SECRET = 'webhook-secret';
 const OPERATOR = '555001';
 
 beforeAll(async () => {
-  await applyD1Migrations(env.DB, (env as any).TEST_MIGRATIONS);
+  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 });
 
 beforeEach(async () => {
@@ -2694,7 +2844,7 @@ beforeEach(async () => {
   );
 });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); });
 
 const testEnv = () =>
   ({ ...env, TELEGRAM_WEBHOOK_SECRET: SECRET, OPERATOR_CHAT_ID: OPERATOR }) as any;
@@ -2989,6 +3139,12 @@ git commit -m "Wire Telegram webhook with auth, read-back and confirm-to-send"
 
 ### Task 13: Site form wiring
 
+**Superseded: the honeypot field below is named `company` in this frozen brief; the
+shipped implementation renamed it to `subscribe_hp`** (see `src/routes/subscribe.ts` and
+`site/index.html`) because `company` is exactly the kind of field name browser/password-manager
+autofill heuristics target. This brief is left as-is as the Codex handoff record; do not
+implement it literally.
+
 **Files:**
 - Modify: `site/index.html`
 
@@ -3153,6 +3309,20 @@ npx wrangler d1 execute masons-trade --remote --command "UPDATE subscribers SET 
 ```
 
 - [ ] **Step 6: Go live — only after the domain exists**
+
+> **BLOCKING GATE — close the open webhook risk first.** `POST /webhooks/email` currently accepts
+> unauthenticated requests, so anyone who finds the URL can mark arbitrary addresses `bounced` or
+> `unsubscribed` and empty the list. This was accepted on 2026-08-03 solely because nothing was
+> live. Before the first real send: add a `RESEND_WEBHOOK_SECRET` secret, verify the Svix headers
+> (`svix-id`, `svix-timestamp`, `svix-signature`) on every request, and reject anything that fails.
+> Do not complete the remaining steps of this task with the endpoint still open.
+>
+> There is a code-level failsafe backing this gate: `bounce.ts` checks `DRY_RUN` before doing
+> anything else and returns `501` whenever it is not exactly `'true'`. That means bounce/complaint
+> processing will simply stop working — return `501` to the provider — the moment Step 6 sets
+> `DRY_RUN = "false"`, until the Svix verification above is actually implemented and this check
+> is updated to depend on it instead. Treat the `501`s after go-live as the expected signal that
+> this gate has not been closed yet, not as a bug to route around.
 
 Blocked until the site owner provides the domain. Then:
 

@@ -113,6 +113,13 @@
     font-size: 17px;
     color: var(--gold-bright);
   }
+  .form-error{
+    display:none;
+    max-width: 380px;
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 17px;
+    color: #e5989b;
+  }
   .disclaimer{
     max-width: 420px;
     font-size: 11px;
@@ -146,24 +153,61 @@
 
   <form id="waitlistForm">
     <input type="email" id="email" name="email" placeholder="your@email.com" required autocomplete="email">
-    <button type="submit">Request access</button>
+    <input type="text" id="subscribe_hp" name="subscribe_hp" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
+    <button type="submit" id="submitBtn">Request access</button>
   </form>
   <p class="form-success" id="formSuccess">Your request has been received.</p>
+  <p class="form-error" id="formError" role="alert"></p>
 
   <p class="disclaimer">The information provided does not constitute financial advice. We do not manage client funds or charge for outcomes. Each individual is responsible for their own trading decisions.</p>
 
   <script>
+    // ENDPOINT is a placeholder until the Worker is deployed (Task 14).
+    const ENDPOINT = 'https://masons-trade.<your-subdomain>.workers.dev/subscribe';
+
     const form = document.getElementById('waitlistForm');
     const success = document.getElementById('formSuccess');
-    form.addEventListener('submit', function(e){
+    const errorEl = document.getElementById('formError');
+    const submitBtn = document.getElementById('submitBtn');
+
+    form.addEventListener('submit', async function(e){
       e.preventDefault();
       const emailInput = document.getElementById('email');
       if(!emailInput.checkValidity()){
         emailInput.focus();
         return;
       }
-      form.style.display = 'none';
-      success.style.display = 'block';
+
+      errorEl.style.display = 'none';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Sending...';
+
+      try {
+        const res = await fetch(ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: emailInput.value,
+            subscribe_hp: document.getElementById('subscribe_hp').value
+          })
+        });
+
+        if (res.ok) {
+          form.style.display = 'none';
+          success.style.display = 'block';
+          return;
+        }
+
+        const body = await res.json().catch(() => ({}));
+        errorEl.textContent = body.error || 'Something went wrong. Please try again.';
+        errorEl.style.display = 'block';
+      } catch (err) {
+        errorEl.textContent = 'Could not reach the server. Please try again.';
+        errorEl.style.display = 'block';
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Request access';
+      }
     });
   </script>
 
