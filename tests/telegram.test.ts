@@ -57,6 +57,34 @@ describe('telegram webhook security', () => {
     const row = await env.DB.prepare('SELECT COUNT(*) AS n FROM trades').first<{ n: number }>();
     expect(row?.n).toBe(0);
   });
+
+  it('ignores a callback query from a chat that is not the operator', async () => {
+    await env.DB.prepare(
+      "INSERT INTO subscribers (email, status, unsub_token, created_at) VALUES ('a@example.com', 'approved', 'tk', 1)",
+    ).run();
+    await hook(textUpdate('gold buy at 2350.50 tp 2360.00 sl 2340.00'));
+    const draft = await env.DB.prepare('SELECT draft_token FROM trades').first<any>();
+
+    const res = await hook({
+      callback_query: {
+        id: 'cb-intruder',
+        from: { id: 999999 },
+        message: { chat: { id: 999999 } },
+        data: `send:${draft.draft_token}`,
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const row = await env.DB.prepare('SELECT status FROM trades').first<any>();
+    expect(row.status).toBe('draft');
+    const sent = await env.DB.prepare('SELECT COUNT(*) AS n FROM send_log').first<{ n: number }>();
+    expect(sent?.n).toBe(0);
+  });
+
+  it('returns 200 rather than 500 for a malformed update shape', async () => {
+    const res = await hook({ message: { text: 'hi' } });
+    expect(res.status).toBe(200);
+  });
 });
 
 describe('telegram webhook trade flow', () => {
@@ -146,5 +174,37 @@ describe('telegram webhook trade flow', () => {
 
     const row = await env.DB.prepare('SELECT status FROM trades').first<any>();
     expect(row.status).toBe('cancelled');
+  });
+
+  it('supersedes an unresolved draft when a new trade is recorded', async () => {
+    await hook(textUpdate('gold buy at 2350.50 tp 2360.00 sl 2340.00'));
+    const first = await env.DB.prepare('SELECT draft_token FROM trades').first<any>();
+
+    await hook(textUpdate('cable sell at 1.2700 tp 1.2650 sl 1.2720'));
+
+    const stale = await env.DB.prepare('SELECT status FROM trades WHERE draft_token = ?')
+      .bind(first.draft_token).first<any>();
+    expect(stale.status).toBe('cancelled');
+  });
+
+  it('refuses to broadcast a superseded draft when its old button is tapped', async () => {
+    await env.DB.prepare(
+      "INSERT INTO subscribers (email, status, unsub_token, created_at) VALUES ('a@example.com', 'approved', 'tk', 1)",
+    ).run();
+    await hook(textUpdate('gold buy at 2350.50 tp 2360.00 sl 2340.00'));
+    const first = await env.DB.prepare('SELECT draft_token FROM trades').first<any>();
+    await hook(textUpdate('cable sell at 1.2700 tp 1.2650 sl 1.2720'));
+
+    await hook({
+      callback_query: {
+        id: 'cb-stale',
+        from: { id: Number(OPERATOR) },
+        message: { chat: { id: Number(OPERATOR) } },
+        data: `send:${first.draft_token}`,
+      },
+    });
+
+    const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM send_log WHERE status = 'sent'").first<{ n: number }>();
+    expect(row?.n).toBe(0);
   });
 });

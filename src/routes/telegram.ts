@@ -4,22 +4,28 @@ import { answerCallbackQuery, sendMessage } from '../telegram/api';
 import { confirmKeyboard, formatRefusal, formatTradeReadback } from '../telegram/format';
 import { parseTrade } from '../trade/parse';
 import { transcribeVoice } from '../transcribe';
-import { cancelDraft, claimDraft, countApproved, createDraft } from '../db/trades';
+import {
+  cancelDraft,
+  cancelOutstandingDrafts,
+  claimDraft,
+  countApproved,
+  createDraft,
+} from '../db/trades';
 import { broadcastTrade } from '../broadcast';
 
 export const telegram = new Hono<{ Bindings: Env }>();
 
 interface Update {
   message?: {
-    chat: { id: number };
+    chat?: { id: number };
     text?: string;
     voice?: { file_id: string };
     audio?: { file_id: string };
   };
   callback_query?: {
     id: string;
-    from: { id: number };
-    message?: { chat: { id: number } };
+    from?: { id: number };
+    message?: { chat?: { id: number } };
     data?: string;
   };
 }
@@ -36,13 +42,17 @@ telegram.post('/telegram/webhook', async (c) => {
 
   if (update.callback_query) {
     const cq = update.callback_query;
-    if (String(cq.from.id) !== operatorId) return c.json({ ok: true });
-    await handleCallback(c.env, cq.id, cq.message?.chat.id ?? cq.from.id, cq.data ?? '');
+    if (String(cq.from?.id) !== operatorId) return c.json({ ok: true });
+    const chatId = cq.message?.chat?.id ?? cq.from?.id;
+    if (chatId === undefined) return c.json({ ok: true });
+    await handleCallback(c.env, cq.id, chatId, cq.data ?? '');
     return c.json({ ok: true });
   }
 
   const message = update.message;
-  if (!message || String(message.chat.id) !== operatorId) return c.json({ ok: true });
+  if (!message) return c.json({ ok: true });
+  const chatId = message.chat?.id;
+  if (chatId === undefined || String(chatId) !== operatorId) return c.json({ ok: true });
 
   const fileId = message.voice?.file_id ?? message.audio?.file_id;
   let transcript: string | null = null;
@@ -52,7 +62,7 @@ telegram.post('/telegram/webhook', async (c) => {
     if (transcript === null) {
       await sendMessage(
         c.env,
-        message.chat.id,
+        chatId,
         'I could not hear that recording. Please record it again.',
       );
       return c.json({ ok: true });
@@ -65,16 +75,19 @@ telegram.post('/telegram/webhook', async (c) => {
 
   const parsed = parseTrade(transcript);
   if (!parsed.ok) {
-    await sendMessage(c.env, message.chat.id, formatRefusal(parsed.missing));
+    await sendMessage(c.env, chatId, formatRefusal(parsed.missing));
     return c.json({ ok: true });
   }
 
   const count = await countApproved(c.env.DB);
+  // A trade left un-tapped must not stay claimable once a new one is recorded -
+  // otherwise an old message's Send button can still broadcast a stale trade later.
+  await cancelOutstandingDrafts(c.env.DB);
   const draft = await createDraft(c.env.DB, parsed.trade, transcript, Date.now());
 
   await sendMessage(
     c.env,
-    message.chat.id,
+    chatId,
     formatTradeReadback(parsed.trade, count),
     confirmKeyboard(draft.draft_token, count),
   );

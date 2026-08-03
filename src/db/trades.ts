@@ -63,6 +63,15 @@ export async function cancelDraft(db: D1Database, token: string): Promise<void> 
     .run();
 }
 
+/**
+ * A draft the operator never resolved must not stay tappable. Recording a new
+ * trade supersedes any outstanding one - otherwise an old message's Send button
+ * still broadcasts a stale trade to the whole list days later.
+ */
+export async function cancelOutstandingDrafts(db: D1Database): Promise<void> {
+  await db.prepare("UPDATE trades SET status = 'cancelled' WHERE status = 'draft'").run();
+}
+
 export async function countApproved(db: D1Database): Promise<number> {
   const row = await db
     .prepare("SELECT COUNT(*) AS n FROM subscribers WHERE status = 'approved'")
