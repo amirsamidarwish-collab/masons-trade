@@ -72,10 +72,22 @@ const BARE_NUMBER = /(?<![a-z0-9])\d+(?:\.\d+)?(?![a-z0-9])/g;
  * script survive intact. Symbol categories So (emoji, flags) and Sk (skin-tone
  * modifiers) and format characters Cf (ZWJ, variation selectors) all fall outside the
  * allowlist and are removed.
+ *
+ * The allowlist alone is not enough: Sm/Sc were widened in so a note can say "$" or
+ * "+20 pips", but seven codepoints are both Sm/Sc and genuine emoji - U+2194, U+25FB-FE,
+ * U+2934/U+2935 - so they survived the first pass. A second, unconditional pass strips
+ * anything Extended_Pictographic regardless of category; it cannot reopen the
+ * flag/keycap/skin-tone leaks the first pass already closed, since those codepoints are
+ * already gone by the time this pass runs. NFC normalisation runs first so a base letter
+ * plus a combining accent (outside the allowlist as \p{M}) is precomposed into a single
+ * accented letter before the allowlist strips anything - otherwise "café" typed in
+ * decomposed form would lose its accent.
  */
 function sanitiseNote(raw: string): string {
   return raw
+    .normalize('NFC')
     .replace(/[^\p{L}\p{N}\p{P}\p{Sc}\p{Sm}\s]/gu, '')
+    .replace(/\p{Extended_Pictographic}/gu, '')
     .replace(/[*_`~]/g, '')
     .replace(/\s+/g, ' ')
     .trim();

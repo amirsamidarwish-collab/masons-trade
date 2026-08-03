@@ -153,4 +153,20 @@ describe('parseTrade', () => {
       },
     });
   });
+
+  it('strips emoji that are also math symbols, which the allowlist would otherwise keep', () => {
+    const r = parseTrade('gold buy at 2350.50 tp 2360.00 sl 2340.00 note reversal ⤴️ then ⤵️ later');
+    expect(r.ok && r.trade.note).toBe('reversal then later');
+  });
+
+  it('keeps genuine math and currency notation', () => {
+    const r = parseTrade('gold buy at 2350.50 tp 2360.00 sl 2340.00 note risk ±20 at $2360 → hold');
+    expect(r.ok && r.trade.note).toBe('risk ±20 at $2360 → hold');
+  });
+
+  it('preserves accented text regardless of composition form', () => {
+    const decomposed = 'gold buy at 2350.50 tp 2360.00 sl 2340.00 note café open';
+    const r = parseTrade(decomposed);
+    expect(r.ok && r.trade.note).toBe('café open');
+  });
 });
