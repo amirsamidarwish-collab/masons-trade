@@ -8,17 +8,28 @@ export const CHUNK_SIZE = 100;
 /**
  * Sends a trade to every approved subscriber.
  *
- * Recipients are ordered by id and cut into fixed chunks, so chunk N always
- * contains the same people, no matter how much of the trade has already been
- * sent. That fixed numbering is what the provider idempotency key is derived
- * from: a retry after a crash re-issues the same key for the same chunk, so
- * the provider can deduplicate it. Chunk indices are computed against the
- * full approved list, not the filtered "still pending" list - re-deriving
- * them from a filtered list would shift a later chunk's index every time an
- * earlier chunk finishes, reusing an already-spent key for different people.
+ * A recipient's chunk is a pure function of their own subscriber id
+ * (`floor((id - 1) / CHUNK_SIZE)`), not of their position in a query result.
+ * The `-1` accounts for ids being 1-indexed (SQLite AUTOINCREMENT never
+ * issues id 0), so chunk 0 is ids [1, 100], chunk 1 is ids [101, 200], and
+ * so on - full 100-person chunks from the very first one, not just an
+ * off-by-one-short first chunk. That fixed, id-derived numbering is what
+ * makes chunk membership - and therefore the provider idempotency key
+ * derived from (trade, chunk) - immune to the approved set changing shape
+ * between runs. Subscriber ids are AUTOINCREMENT and never reused, so
+ * "chunk 3" means exactly "approved subscribers with id in [301, 400]" for
+ * the entire life of the trade, whether or not everyone in that range is
+ * still approved. Deriving the chunk from array position instead would let
+ * someone unsubscribing between runs shift a later chunk's membership and
+ * reuse an already-spent idempotency key for a different set of people.
+ * Chunks may be sparse after churn (fewer than 100 people); that's harmless.
  *
- * Safe to call repeatedly: chunks that are already fully logged as sent are
- * skipped without calling the provider at all.
+ * Only runs for a trade whose status is 'sending' - i.e. one that has gone
+ * through claimDraft. Nothing sends unprompted: an unclaimed or already
+ * finished trade is a no-op.
+ *
+ * Safe to call repeatedly: recipients already logged as sent are skipped
+ * without calling the provider at all.
  */
 export async function broadcastTrade(
   env: Env,
@@ -31,7 +42,7 @@ export async function broadcastTrade(
   )
     .bind(tradeId)
     .first<StoredTrade>();
-  if (!trade) return { sent: 0, failed: 0 };
+  if (!trade || trade.status !== 'sending') return { sent: 0, failed: 0 };
 
   const { results: approved } = await env.DB.prepare(
     `SELECT id, email, status, unsub_token, created_at, approved_at
@@ -45,16 +56,23 @@ export async function broadcastTrade(
     .all<{ subscriber_id: number }>();
   const alreadySent = new Set(sentRows.map((r) => r.subscriber_id));
 
+  const pendingRecipients = approved.filter((s) => !alreadySent.has(s.id));
+
+  const byChunk = new Map<number, Subscriber[]>();
+  for (const s of pendingRecipients) {
+    const key = Math.floor((s.id - 1) / CHUNK_SIZE);
+    const group = byChunk.get(key);
+    if (group) group.push(s);
+    else byChunk.set(key, [s]);
+  }
+
   let sent = 0;
   let failed = 0;
 
-  for (let i = 0; i < approved.length; i += CHUNK_SIZE) {
-    const chunkIndex = Math.floor(i / CHUNK_SIZE);
-    const chunk = approved.slice(i, i + CHUNK_SIZE);
-    const pending = chunk.filter((s) => !alreadySent.has(s.id));
-    if (pending.length === 0) continue;
+  for (const chunkIndex of [...byChunk.keys()].sort((a, b) => a - b)) {
+    const chunk = byChunk.get(chunkIndex)!;
 
-    const emails = pending.map((s) => {
+    const emails = chunk.map((s) => {
       const url = unsubUrl(env, s.unsub_token);
       const mail = renderTrade(env, trade, url);
       return { to: s.email, subject: mail.subject, html: mail.html, text: mail.text, unsubUrl: url };
@@ -63,7 +81,7 @@ export async function broadcastTrade(
     const results = await sendBatch(env, emails, `trade-${tradeId}-chunk-${chunkIndex}`);
 
     await env.DB.batch(
-      pending.map((s, idx) =>
+      chunk.map((s, idx) =>
         env.DB.prepare(
           `INSERT INTO send_log (trade_id, subscriber_id, chunk, status, updated_at)
            VALUES (?, ?, ?, ?, ?)

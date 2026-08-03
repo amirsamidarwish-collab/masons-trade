@@ -21,6 +21,11 @@ beforeEach(async () => {
   await env.DB.prepare('DELETE FROM subscribers').run();
   await env.DB.prepare('DELETE FROM trades').run();
   await env.DB.prepare('DELETE FROM send_log').run();
+  // Chunking is now keyed on the subscriber's own AUTOINCREMENT id, so tests
+  // that assert exact chunk splits (e.g. 100/50) need ids to start at 1 each
+  // time - otherwise ids carried over from an earlier test in this file
+  // shift the chunk boundaries.
+  await env.DB.prepare("DELETE FROM sqlite_sequence WHERE name IN ('subscribers', 'trades')").run();
 });
 
 afterEach(() => { vi.restoreAllMocks(); });
@@ -62,6 +67,7 @@ describe('broadcastTrade', () => {
     await seedApproved(5);
     vi.stubGlobal('fetch', okFetch());
     const draft = await createDraft(env.DB, trade, 't', 1);
+    await claimDraft(env.DB, draft.draft_token);
 
     expect(await broadcastTrade(env as any, draft.id, 1000)).toEqual({ sent: 5, failed: 0 });
 
@@ -82,6 +88,7 @@ describe('broadcastTrade', () => {
     const fetchMock = okFetch();
     vi.stubGlobal('fetch', fetchMock);
     const draft = await createDraft(env.DB, trade, 't', 1);
+    await claimDraft(env.DB, draft.draft_token);
 
     expect(await broadcastTrade(env as any, draft.id, 1000)).toEqual({ sent: 2, failed: 0 });
   });
@@ -91,6 +98,7 @@ describe('broadcastTrade', () => {
     const fetchMock = okFetch();
     vi.stubGlobal('fetch', fetchMock);
     const draft = await createDraft(env.DB, trade, 't', 1);
+    await claimDraft(env.DB, draft.draft_token);
 
     await broadcastTrade(env as any, draft.id, 1000);
 
@@ -113,6 +121,7 @@ describe('broadcastTrade', () => {
       }),
     );
     const draft = await createDraft(env.DB, trade, 't', 1);
+    await claimDraft(env.DB, draft.draft_token);
 
     const first = await broadcastTrade(env as any, draft.id, 1000);
     expect(first).toEqual({ sent: 100, failed: 50 });
@@ -129,5 +138,44 @@ describe('broadcastTrade', () => {
       "SELECT COUNT(*) AS n FROM send_log WHERE status = 'sent'",
     ).first<{ n: number }>();
     expect(total?.n).toBe(150);
+  });
+
+  it('keeps chunk membership stable when a subscriber leaves between runs', async () => {
+    await seedApproved(150);
+    let call = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        call++;
+        if (call === 2) return new Response('boom', { status: 500 });
+        return new Response(JSON.stringify({ data: [] }), { status: 200 });
+      }),
+    );
+    const draft = await createDraft(env.DB, trade, 't', 1);
+    await claimDraft(env.DB, draft.draft_token);
+    await broadcastTrade(env as any, draft.id, 1000);
+
+    await env.DB.prepare(
+      "UPDATE subscribers SET status = 'unsubscribed' WHERE email = 'u49@example.com'",
+    ).run();
+
+    const fetchMock = okFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    await broadcastTrade(env as any, draft.id, 2000);
+
+    const keys = fetchMock.mock.calls.map(
+      (c: any) => (c[1].headers as Record<string, string>)['Idempotency-Key'],
+    );
+    expect(keys).not.toContain(`trade-${draft.id}-chunk-0`);
+  });
+
+  it('does not send for a trade that was never claimed', async () => {
+    await seedApproved(3);
+    const fetchMock = okFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    const draft = await createDraft(env.DB, trade, 't', 1);
+
+    expect(await broadcastTrade(env as any, draft.id, 1000)).toEqual({ sent: 0, failed: 0 });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
