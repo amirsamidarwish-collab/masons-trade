@@ -99,4 +99,19 @@ describe('parseTrade', () => {
     const r = parseTrade('nas100 buy 18000 take profit 18200 stop loss 17900');
     expect(r.ok && r.trade.entry).toBe('18000');
   });
+
+  it('strips emoji from a note so VoiceOver does not announce them', () => {
+    const r = parseTrade('gold buy at 2350.50 tp 2360.00 sl 2340.00 note London open 🔥 watch it');
+    expect(r.ok && r.trade.note).toBe('London open watch it');
+  });
+
+  it('strips markdown characters from a note', () => {
+    const r = parseTrade('gold buy at 2350.50 tp 2360.00 sl 2340.00 note *important* check_this');
+    expect(r.ok && r.trade.note).toBe('important checkthis');
+  });
+
+  it('treats a note that is only emoji as no note at all', () => {
+    const r = parseTrade('gold buy at 2350.50 tp 2360.00 sl 2340.00 note 🔥🔥');
+    expect(r.ok && r.trade.note).toBe(null);
+  });
 });

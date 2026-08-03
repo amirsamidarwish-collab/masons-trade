@@ -34,6 +34,14 @@ describe('formatTradeReadback', () => {
     expect(EMOJI.test(text)).toBe(false);
     expect(text).not.toMatch(/[*_`~]/);
   });
+
+  it('stays emoji-free when the trade carries a populated note', () => {
+    const withNote: Trade = { ...trade, note: 'London open watch it' };
+    const text = formatTradeReadback(withNote, 143);
+    expect(text).toContain('Note. London open watch it');
+    expect(EMOJI.test(text)).toBe(false);
+    expect(text).not.toMatch(/[*_`~]/);
+  });
 });
 
 describe('confirmKeyboard', () => {

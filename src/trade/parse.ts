@@ -59,6 +59,21 @@ function firstLabelIndex(text: string, labels: string[]): number {
 const BARE_NUMBER = /(?<![a-z0-9])\d+(?:\.\d+)?(?![a-z0-9])/g;
 
 /**
+ * The note is spoken aloud by VoiceOver and also rendered into the broadcast email.
+ * Emoji are announced by name ("check mark button") and markdown characters are read
+ * out as punctuation - both bury the prices the operator actually needs to hear.
+ * Stripped at the source so the readback he confirms and the email subscribers get
+ * are the same text.
+ */
+function sanitiseNote(raw: string): string {
+  return raw
+    .replace(/\p{Extended_Pictographic}/gu, '')
+    .replace(/[*_`~]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Entry is searched only in the text before the first take-profit/stop-loss
  * label, so a stray "at" inside "take profit at ..." can never be misread as
  * the entry. A labelled entry wins; failing that (and only when no entry
@@ -104,10 +119,9 @@ export function parseTrade(transcript: string): ParseResult {
 
   const lower = transcript.toLowerCase();
   const noteAt = lower.search(/\bnote\b/);
-  const note =
-    noteAt === -1
-      ? null
-      : transcript.slice(noteAt + 4).replace(/^[\s:,.\-]+/, '').trim() || null;
+  const rawNote =
+    noteAt === -1 ? null : transcript.slice(noteAt + 4).replace(/^[\s:,.\-]+/, '').trim() || null;
+  const note = rawNote === null ? null : sanitiseNote(rawNote) || null;
 
   return {
     ok: true,

@@ -2036,6 +2036,28 @@ git commit -m "Add unsubscribe route and bounce webhook pruning"
 
 Every constraint in this task is an accessibility requirement. Read the Global Constraints again before writing it.
 
+> **Amended after review.** The Step 3/4 reference code below carried two defects, both found
+> in review:
+>
+> 1. **`trade.note` reached VoiceOver unsanitised.** `note` is a raw slice of the transcript
+>    (or of typed fallback input, where iOS predictive text inserts emoji freely), and
+>    `formatTradeReadback` interpolated it verbatim. Since `sendMessage` sets no `parse_mode`,
+>    an emoji or `*`/`_`/backtick in a note would reach Telegram literally and VoiceOver would
+>    announce it by name in the middle of the prices — exactly what the no-emoji rule exists to
+>    prevent. Fixed at the source, not in `format.ts`: `src/trade/parse.ts` now runs the note
+>    through a `sanitiseNote()` step (strips `\p{Extended_Pictographic}` and `[*_`~]`, collapses
+>    whitespace, trims) before it ever becomes part of the `Trade`, so the value the operator
+>    confirms in the readback and the value that reaches the broadcast email are the same clean
+>    text. A note that is empty after sanitising becomes `null`, not `''`, since both the
+>    readback and the email template branch on falsiness.
+> 2. **`sendMessage` and `answerCallbackQuery` discarded the Telegram response.** Both awaited
+>    `fetch(...)` and returned `void`, so a blocked bot, unknown chat, or rate limit was
+>    indistinguishable from success — `getFileUrl` right below them already checked `res.ok`.
+>    Both now return `Promise<boolean>` (`res.ok`) instead of `Promise<void>`, still without
+>    throwing on a non-ok response and without logging the response body (the request URL
+>    embeds the bot token). The interface list above is superseded by this signature; the
+>    shipped `src/telegram/api.ts` and `src/trade/parse.ts` are the source of truth.
+
 - [ ] **Step 1: Write the failing test**
 
 Create `tests/format.test.ts`:
