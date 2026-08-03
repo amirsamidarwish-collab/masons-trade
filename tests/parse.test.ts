@@ -135,12 +135,22 @@ describe('parseTrade', () => {
     expect(r.ok && r.trade.note).toBe('בדיקה מהירה');
   });
 
-  // NOTE: "preserves currency and arithmetic symbols in a note" from the review brief is
-  // intentionally omitted here. Its fixture note text contains the word "target", which is
-  // itself a TP_LABELS alias (see ALL_LABELS above); valueAfter's stop-word truncation then
-  // treats "target" inside the note as a label boundary while resolving stop_loss, mangles
-  // the digits it hands to parseSpokenNumber, and the whole trade is refused with
-  // {ok: false, missing: ['stop loss']} before note sanitisation is ever reached. This is a
-  // pre-existing label-collision behaviour unrelated to sanitiseNote or Unicode handling.
-  // Flagged for the coordinator rather than silently reworded; see task-9-report.md Fix 2.
+  it('preserves currency and arithmetic symbols in a note', () => {
+    const r = parseTrade('gold buy at 2350.50 tp 2360.00 sl 2340.00 note target +20 pips at $2360');
+    expect(r.ok && r.trade.note).toBe('target +20 pips at $2360');
+  });
+
+  it('does not let label words inside a note disturb price parsing', () => {
+    expect(parseTrade('gold buy at 2350.50 tp 2360.00 sl 2340.00 note stop watching the entry at tp')).toEqual({
+      ok: true,
+      trade: {
+        pair: 'XAUUSD',
+        direction: 'Buy',
+        entry: '2350.50',
+        take_profit: '2360.00',
+        stop_loss: '2340.00',
+        note: 'stop watching the entry at tp',
+      },
+    });
+  });
 });

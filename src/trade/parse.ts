@@ -103,7 +103,11 @@ function findEntry(text: string): string | null {
 }
 
 export function parseTrade(transcript: string): ParseResult {
-  const text = ` ${normalise(transcript)} `;
+  const fullText = ` ${normalise(transcript)} `;
+  const noteBoundary = fullText.search(/\bnote\b/);
+  // Everything after "note" is free text. Scanning it for labels means a note saying
+  // "target" or "stop" silently truncates a real price and refuses a valid trade.
+  const text = noteBoundary === -1 ? fullText : `${fullText.slice(0, noteBoundary)} `;
   const missing: string[] = [];
 
   const pair = resolvePair(text);

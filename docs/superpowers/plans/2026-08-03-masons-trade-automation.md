@@ -1441,7 +1441,8 @@ git commit -m "Add spoken number and currency pair parsing"
 The refusal path is the point of this task. A guessed stop-loss reaches every subscriber.
 
 > **Amended after review.** The Step 3 reference code below carried two defects, both found in
-> review and fixed in commit `095bd18`. The shipped `src/trade/parse.ts` is the source of truth:
+> review and fixed in commit `095bd18`, plus a third found later during Task 9 review once the
+> note started carrying real free text. The shipped `src/trade/parse.ts` is the source of truth:
 >
 > 1. **Note mis-slice.** The gate tested the normalised copy while the slice re-ran `indexOf` on
 >    the raw transcript. A transcript trailing off on `"note"` produced `slice(5)` — garbage that
@@ -1450,6 +1451,15 @@ The refusal path is the point of this task. A guessed stop-loss reaches every su
 >    parser refuse while naming the wrong fields. Entry is now searched only before the first
 >    TP/SL label, filler words are stripped from captured values, and a single unlabelled number
 >    in the entry region is accepted while two or more refuse.
+> 3. **Label lookups scanned the whole transcript, including the note.** A note that happened to
+>    contain an ordinary trading word matching a label alias — `"target"` (a `TP_LABELS` alias),
+>    or equally `"stop"`, `"entry"`, `"at"`, `"tp"` — silently truncated a real price during
+>    `valueAfter`'s stop-word scan and refused an otherwise well-formed trade, naming the wrong
+>    field as missing. The note is free text by definition and must never influence pair,
+>    direction, or price extraction. `parseTrade` now computes the note boundary
+>    (`fullText.search(/\bnote\b/)`) before any label work and confines `resolvePair`, the
+>    direction regex, and all three price lookups to the text before that boundary; note
+>    extraction itself is unaffected and still runs against the raw transcript.
 
 - [ ] **Step 1: Write the failing test**
 
