@@ -100,11 +100,6 @@ describe('parseTrade', () => {
     expect(r.ok && r.trade.entry).toBe('18000');
   });
 
-  it('strips emoji from a note so VoiceOver does not announce them', () => {
-    const r = parseTrade('gold buy at 2350.50 tp 2360.00 sl 2340.00 note London open 🔥 watch it');
-    expect(r.ok && r.trade.note).toBe('London open watch it');
-  });
-
   it('strips markdown characters from a note', () => {
     const r = parseTrade('gold buy at 2350.50 tp 2360.00 sl 2340.00 note *important* check_this');
     expect(r.ok && r.trade.note).toBe('important checkthis');
@@ -114,4 +109,38 @@ describe('parseTrade', () => {
     const r = parseTrade('gold buy at 2350.50 tp 2360.00 sl 2340.00 note 🔥🔥');
     expect(r.ok && r.trade.note).toBe(null);
   });
+
+  it('strips flag emoji, which are not Extended_Pictographic', () => {
+    const r = parseTrade('gold buy at 2350.50 tp 2360.00 sl 2340.00 note watch 🇺🇸 open');
+    expect(r.ok && r.trade.note).toBe('watch open');
+  });
+
+  it('strips keycap sequences without leaving the combining mark', () => {
+    const r = parseTrade('gold buy at 2350.50 tp 2360.00 sl 2340.00 note tier 1️⃣ setup');
+    expect(r.ok && r.trade.note).toBe('tier 1 setup');
+  });
+
+  it('strips a compound emoji without leaving an orphaned skin tone modifier', () => {
+    const r = parseTrade('gold buy at 2350.50 tp 2360.00 sl 2340.00 note nice 👍🏽 one');
+    expect(r.ok && r.trade.note).toBe('nice one');
+  });
+
+  it('strips zero width joiner sequences completely', () => {
+    const r = parseTrade('gold buy at 2350.50 tp 2360.00 sl 2340.00 note family 👨‍👩‍👧‍👦 time');
+    expect(r.ok && r.trade.note).toBe('family time');
+  });
+
+  it('preserves Hebrew text in a note', () => {
+    const r = parseTrade('gold buy at 2350.50 tp 2360.00 sl 2340.00 note בדיקה מהירה');
+    expect(r.ok && r.trade.note).toBe('בדיקה מהירה');
+  });
+
+  // NOTE: "preserves currency and arithmetic symbols in a note" from the review brief is
+  // intentionally omitted here. Its fixture note text contains the word "target", which is
+  // itself a TP_LABELS alias (see ALL_LABELS above); valueAfter's stop-word truncation then
+  // treats "target" inside the note as a label boundary while resolving stop_loss, mangles
+  // the digits it hands to parseSpokenNumber, and the whole trade is refused with
+  // {ok: false, missing: ['stop loss']} before note sanitisation is ever reached. This is a
+  // pre-existing label-collision behaviour unrelated to sanitiseNote or Unicode handling.
+  // Flagged for the coordinator rather than silently reworded; see task-9-report.md Fix 2.
 });

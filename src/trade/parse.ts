@@ -59,15 +59,23 @@ function firstLabelIndex(text: string, labels: string[]): number {
 const BARE_NUMBER = /(?<![a-z0-9])\d+(?:\.\d+)?(?![a-z0-9])/g;
 
 /**
- * The note is spoken aloud by VoiceOver and also rendered into the broadcast email.
+ * The note is spoken aloud by VoiceOver and rendered into the broadcast email.
  * Emoji are announced by name ("check mark button") and markdown characters are read
- * out as punctuation - both bury the prices the operator actually needs to hear.
- * Stripped at the source so the readback he confirms and the email subscribers get
- * are the same text.
+ * out as punctuation - both bury the prices the operator needs to hear.
+ *
+ * This is an allowlist, not a blacklist, because blacklisting emoji leaks: flags are
+ * Regional_Indicator, keycaps are a digit plus combining marks, and skin tones are
+ * Modifier_Symbol - none of which are Extended_Pictographic, and stripping only the
+ * base glyph of a compound emoji leaves orphaned codepoints behind.
+ *
+ * Letters are matched by Unicode property, not by ASCII range, so Hebrew and any other
+ * script survive intact. Symbol categories So (emoji, flags) and Sk (skin-tone
+ * modifiers) and format characters Cf (ZWJ, variation selectors) all fall outside the
+ * allowlist and are removed.
  */
 function sanitiseNote(raw: string): string {
   return raw
-    .replace(/\p{Extended_Pictographic}/gu, '')
+    .replace(/[^\p{L}\p{N}\p{P}\p{Sc}\p{Sm}\s]/gu, '')
     .replace(/[*_`~]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
