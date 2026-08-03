@@ -67,4 +67,36 @@ describe('parseTrade', () => {
     const result = parseTrade('gold buy at 2350.50 tp 2360.00 sl 2340.00 note London session only');
     expect(result.ok && result.trade.note).toBe('London session only');
   });
+
+  it('returns a null note when the transcript merely trails off on the word note', () => {
+    const r = parseTrade('gold buy at 2350.50 tp 2360.00 sl 2340.00 note');
+    expect(r.ok && r.trade.note).toBe(null);
+  });
+
+  it('reads a note introduced with punctuation or mixed case', () => {
+    const r = parseTrade('gold buy at 2350.50 tp 2360.00 sl 2340.00 Note: London session');
+    expect(r.ok && r.trade.note).toBe('London session');
+  });
+
+  it('parses prices spoken as "take profit at X"', () => {
+    expect(parseTrade('euro dollar buy at 1.0850 take profit at 1.0920 stop loss at 1.0820')).toEqual({
+      ok: true,
+      trade: { pair: 'EURUSD', direction: 'Buy', entry: '1.0850', take_profit: '1.0920', stop_loss: '1.0820', note: null },
+    });
+  });
+
+  it('accepts a single unlabelled entry price before the first take profit label', () => {
+    const r = parseTrade('gold buy 2350.50 take profit 2360.00 stop loss 2340.00');
+    expect(r.ok && r.trade.entry).toBe('2350.50');
+  });
+
+  it('refuses when the entry region contains two candidate numbers', () => {
+    const r = parseTrade('euro dollar buy 1.0850 1.0900 take profit 1.0920 stop loss 1.0820');
+    expect(r).toEqual({ ok: false, missing: ['entry'] });
+  });
+
+  it('does not mistake the digits in an index symbol for a price', () => {
+    const r = parseTrade('nas100 buy 18000 take profit 18200 stop loss 17900');
+    expect(r.ok && r.trade.entry).toBe('18000');
+  });
 });
