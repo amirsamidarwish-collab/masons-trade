@@ -32,4 +32,16 @@ describe('parseSpokenNumber', () => {
   it('returns null for two decimal points', () => {
     expect(parseSpokenNumber('one point zero point five')).toBe(null);
   });
+
+  it('refuses two adjacent numerals rather than gluing them together', () => {
+    expect(parseSpokenNumber('2340 2350')).toBe(null);
+  });
+
+  it('still concatenates spoken word digits', () => {
+    expect(parseSpokenNumber('two three four five')).toBe('2345');
+  });
+
+  it('still parses a numeral followed by a point word', () => {
+    expect(parseSpokenNumber('2340 point 50')).toBe('2340.50');
+  });
 });

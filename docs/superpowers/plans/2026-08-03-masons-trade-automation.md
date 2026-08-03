@@ -1460,6 +1460,26 @@ The refusal path is the point of this task. A guessed stop-loss reaches every su
 >    (`fullText.search(/\bnote\b/)`) before any label work and confines `resolvePair`, the
 >    direction regex, and all three price lookups to the text before that boundary; note
 >    extraction itself is unaffected and still runs against the raw transcript.
+> 4. **Two more defects, found in the final whole-branch review of `feature/automation-v1` and
+>    fixed in fix wave A.** First, `parseSpokenNumber` concatenated any two adjacent numeral
+>    tokens into one fabricated price — `'2340 2350'` became `'23402350'`, and
+>    `'take profit 2360 2370'` (the operator correcting himself mid-sentence, a common dictation
+>    pattern) silently produced `'23602370'` instead of refusing. It now refuses whenever two
+>    consecutive numeral tokens appear with no point word between them; spoken word-digits
+>    (`'two three four five'` → `'2345'`) and numeral-plus-point-word (`'2340 point 50'` →
+>    `'2340.50'`) are unaffected. Second, `valueAfter` required the *entire* remainder of the
+>    transcript after the last labelled price to parse as one number, so any trailing word —
+>    `"send it"`, `"thanks"`, `"pips"`, `"ok"` — refused the whole trade and named a field the
+>    operator had in fact said, prompting him to re-record and hit the same refusal. `numbers.ts`
+>    now exports `isNumberToken` and `takeLeadingNumber`, which reads only the leading run of
+>    number tokens after a label; `valueAfter` accepts trailing non-numeric chatter and refuses
+>    only if a further *numeric* token follows the run (closing the first defect too, since
+>    `'2360 2370'` is two numeric tokens with no valid split). Leading filler words (`at`, `of`,
+>    `is`, `to`) are now stripped in a loop rather than once, so chained fillers
+>    (`"take profit is at 2360"`) no longer refuse either. Separately, a bare `'stop'` label
+>    immediately preceded by `buy`, `sell`, `long`, or `short` (`"buy stop"` / `"sell stop"`,
+>    standard pending-order phrasing) is now ignored in favour of a later, genuine stop-loss
+>    label, so it no longer truncates and loses the entry region.
 
 - [ ] **Step 1: Write the failing test**
 

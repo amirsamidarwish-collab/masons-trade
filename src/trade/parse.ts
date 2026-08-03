@@ -1,5 +1,5 @@
 import type { Trade } from '../types';
-import { parseSpokenNumber } from './numbers';
+import { isNumberToken, takeLeadingNumber } from './numbers';
 import { resolvePair } from './pairs';
 
 export type ParseResult =
@@ -11,6 +11,8 @@ const SL_LABELS = ['stop loss', 'stoploss', 'sl', 'stop'];
 const ENTRY_LABELS = ['entry', 'enter at', 'enter', 'at'];
 const PRICE_LABELS = [...TP_LABELS, ...SL_LABELS];
 const ALL_LABELS = [...TP_LABELS, ...SL_LABELS, ...ENTRY_LABELS, 'note'];
+const FILLER_WORDS = new Set(['at', 'of', 'is', 'to']);
+const STOP_PRECEDERS = new Set(['buy', 'sell', 'long', 'short']);
 
 function normalise(text: string): string {
   return text
@@ -24,25 +26,59 @@ function normalise(text: string): string {
 }
 
 /**
- * Reads the value following a label. Takes words up to the next label or the
- * end, then hands them to parseSpokenNumber, which refuses anything ambiguous.
+ * Index of the next padded occurrence of `label` in `text`, or -1 if absent.
+ * "buy stop" / "sell stop" are standard pending-order phrasing, not a
+ * stop-loss label, so a bare "stop" occurrence immediately preceded by
+ * buy/sell/long/short is skipped in favour of a later, genuine occurrence.
+ */
+function indexOfLabel(text: string, label: string): number {
+  let at = text.indexOf(` ${label} `);
+  if (label !== 'stop') return at;
+  while (at !== -1) {
+    const before = text.slice(0, at).trimEnd();
+    const prevWord = before.slice(before.lastIndexOf(' ') + 1);
+    if (!STOP_PRECEDERS.has(prevWord)) return at;
+    at = text.indexOf(` ${label} `, at + 1);
+  }
+  return -1;
+}
+
+/** Strips leading filler words ("is at", "of") so chained fillers all fall away. */
+function stripLeadingFillers(text: string): string {
+  const tokens = text.split(' ').filter(Boolean);
+  let i = 0;
+  while (i < tokens.length && FILLER_WORDS.has(tokens[i])) i++;
+  return tokens.slice(i).join(' ');
+}
+
+/**
+ * Reads the value following a label. Takes the leading run of number tokens
+ * after the label (and any stop label), then hands them to parseSpokenNumber.
+ * Trailing chatter ("2340 send it") is accepted; a further numeric token
+ * ("2360 2370") is the operator correcting himself and must refuse rather
+ * than guess which price he meant.
  */
 function valueAfter(text: string, labels: string[], stopLabels: string[]): string | null {
   for (const label of labels) {
-    const at = text.indexOf(` ${label} `);
+    const at = indexOfLabel(text, label);
     if (at === -1) continue;
     let rest = text.slice(at + label.length + 2);
+    // Strip fillers before hunting for a stop label: ALL_LABELS includes the
+    // bare entry label "at", so an unstripped "is at 2360" would be cut at
+    // its own trailing "at" and truncated to nothing before it ever reaches
+    // the number.
+    rest = stripLeadingFillers(rest);
     for (const stop of stopLabels) {
-      const stopAt = rest.indexOf(` ${stop} `);
+      const stopAt = indexOfLabel(rest, stop);
       if (stopAt !== -1) rest = rest.slice(0, stopAt);
     }
-    const words = rest
-      .split(' ')
-      .slice(0, 12)
-      .join(' ')
-      .replace(/^(?:at|of|is|to)\s+/, '');
-    const value = parseSpokenNumber(words);
-    if (value !== null) return value;
+    const words = rest.split(' ').slice(0, 12).join(' ');
+    const { value, rest: afterNumber } = takeLeadingNumber(words);
+    if (value !== null) {
+      const trailing = afterNumber.split(/\s+/).filter(Boolean);
+      if (trailing.some(isNumberToken)) return null;
+      return value;
+    }
     // Label present but unreadable value: refuse rather than try another label.
     return null;
   }
@@ -53,7 +89,7 @@ function valueAfter(text: string, labels: string[], stopLabels: string[]): strin
 function firstLabelIndex(text: string, labels: string[]): number {
   let min = -1;
   for (const label of labels) {
-    const at = text.indexOf(` ${label} `);
+    const at = indexOfLabel(text, label);
     if (at !== -1 && (min === -1 || at < min)) min = at;
   }
   return min;

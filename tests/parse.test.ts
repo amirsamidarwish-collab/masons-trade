@@ -188,4 +188,29 @@ describe('parseTrade', () => {
     const r = parseTrade('gold sell by market at 2350.50 tp 2340.00 sl 2360.00');
     expect(r.ok && r.trade.direction).toBe('Sell');
   });
+
+  it('refuses a self-corrected price instead of inventing one', () => {
+    const r = parseTrade('gold buy at 2350 take profit 2360 2370 stop loss 2340');
+    expect(r).toEqual({ ok: false, missing: ['take profit'] });
+  });
+
+  it('accepts trailing chatter after the last price', () => {
+    const r = parseTrade('gold buy at 2350 take profit 2360 stop loss 2340 send it');
+    expect(r.ok && r.trade.stop_loss).toBe('2340');
+  });
+
+  it('accepts a unit word after a price', () => {
+    const r = parseTrade('gold buy at 2350 take profit 2360 stop loss 2340 pips');
+    expect(r.ok && r.trade.stop_loss).toBe('2340');
+  });
+
+  it('handles chained filler words before a price', () => {
+    const r = parseTrade('gold buy at 2350 take profit is at 2360 stop loss 2340');
+    expect(r.ok && r.trade.take_profit).toBe('2360');
+  });
+
+  it('parses a buy stop pending order without losing the entry', () => {
+    const r = parseTrade('gold buy stop at 2350 take profit 2360 stop loss 2340');
+    expect(r.ok && r.trade.entry).toBe('2350');
+  });
 });
