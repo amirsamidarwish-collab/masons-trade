@@ -4,7 +4,7 @@ import { subscribe } from './routes/subscribe';
 import { unsubscribe } from './routes/unsubscribe';
 import { bounce } from './routes/bounce';
 import { telegram } from './routes/telegram';
-import { runApprovalSweep } from './cron';
+import { runApprovalSweep, runStuckBroadcastSweep } from './cron';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -18,5 +18,6 @@ export default {
   fetch: app.fetch,
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(runApprovalSweep(env, event.scheduledTime));
+    ctx.waitUntil(runStuckBroadcastSweep(env, event.scheduledTime));
   },
 } satisfies ExportedHandler<Env>;

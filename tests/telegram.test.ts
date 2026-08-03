@@ -15,7 +15,20 @@ beforeEach(async () => {
   await env.DB.prepare('DELETE FROM send_log').run();
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => new Response(JSON.stringify({ ok: true, data: [] }), { status: 200 })),
+    // Telegram's own API only cares about `res.ok` here (see telegram/api.ts),
+    // but the Resend batch endpoint's response is now checked against the
+    // outgoing payload size (I2), so a fixed/empty `data` array would
+    // misreport every broadcast as failed. Size it to match.
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).includes('api.telegram.org')) {
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      const payload = JSON.parse((init?.body as string) ?? '[]');
+      return new Response(
+        JSON.stringify({ data: payload.map((_: unknown, i: number) => ({ id: `e${i}` })) }),
+        { status: 200 },
+      );
+    }),
   );
 });
 

@@ -15,7 +15,24 @@ export async function countRecentSignupsFromIp(
   return row?.n ?? 0;
 }
 
-/** Returns null when the address already exists. */
+/**
+ * Returns null when the address already exists and is currently
+ * `pending_approval` or `approved` - a true duplicate, left untouched.
+ *
+ * When the existing row is `unsubscribed` or `bounced`, it is reset to
+ * `pending_approval` with a fresh token and `created_at`, and `approved_at`
+ * cleared, then returned as if it were a new signup. Someone who bounced or
+ * unsubscribed can otherwise never rejoin the list: `ON CONFLICT DO NOTHING`
+ * alone would silently drop them forever while the route still answers
+ * `{ok: true}` (deliberately, to prevent enumeration), so the caller has no
+ * way to tell "welcomed" apart from "silently ignored" unless this function
+ * does the reset itself.
+ *
+ * The `WHERE` clause on the `DO UPDATE` is what makes this safe for a true
+ * duplicate: per SQLite's UPSERT rules, when that condition is false the
+ * update is skipped entirely (as if `DO NOTHING`), so a `pending_approval` or
+ * `approved` row is never touched and this still returns null for it.
+ */
 export async function insertSubscriber(
   db: D1Database,
   email: string,
@@ -27,7 +44,13 @@ export async function insertSubscriber(
     .prepare(
       `INSERT INTO subscribers (email, status, unsub_token, ip_hash, created_at)
        VALUES (?, 'pending_approval', ?, ?, ?)
-       ON CONFLICT(email) DO NOTHING
+       ON CONFLICT(email) DO UPDATE SET
+         status = 'pending_approval',
+         unsub_token = excluded.unsub_token,
+         ip_hash = excluded.ip_hash,
+         created_at = excluded.created_at,
+         approved_at = NULL
+       WHERE subscribers.status IN ('unsubscribed', 'bounced')
        RETURNING id, email, status, unsub_token, created_at, approved_at`,
     )
     .bind(email, token, ipHash, now)

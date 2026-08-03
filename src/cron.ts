@@ -2,10 +2,14 @@ import type { Env } from './types';
 import { unsubUrl } from './db/subscribers';
 import { sendBatch } from './email/send';
 import { renderApproved } from './email/templates';
+import { broadcastTrade } from './broadcast';
 
 export const APPROVAL_DELAY_MS = 30 * 60 * 60 * 1000;
 
 const BATCH = 100;
+
+/** Bounded so a tick with many stuck trades cannot blow the cron's time budget. */
+export const STUCK_BROADCAST_SWEEP_LIMIT = 5;
 
 interface ApprovedRow {
   id: number;
@@ -44,6 +48,32 @@ export async function runApprovalSweep(env: Env, now: number): Promise<number> {
   });
 
   await sendBatch(env, emails, `approvals-${results[0].id}-${results[results.length - 1].id}`);
+
+  return results.length;
+}
+
+/**
+ * Resumes any broadcast left stuck in 'sending' - a trade that had at least
+ * one failed recipient last time `broadcastTrade` ran and was never retried.
+ * `claimDraft` only claims 'draft' rows, so nothing else can move a trade out
+ * of 'sending'; without this sweep an operator who sees "Sent 100. Failed 50."
+ * has no way to finish that broadcast.
+ *
+ * `broadcastTrade` is safe to call repeatedly - already-sent recipients are
+ * skipped - so this just re-invokes it for each stuck trade. Bounded to
+ * `STUCK_BROADCAST_SWEEP_LIMIT` per tick since the cron runs every 15 minutes
+ * and will pick up any remainder on the next tick.
+ */
+export async function runStuckBroadcastSweep(env: Env, now: number): Promise<number> {
+  const { results } = await env.DB.prepare(
+    `SELECT id FROM trades WHERE status = 'sending' ORDER BY id LIMIT ?`,
+  )
+    .bind(STUCK_BROADCAST_SWEEP_LIMIT)
+    .all<{ id: number }>();
+
+  for (const row of results) {
+    await broadcastTrade(env, row.id, now);
+  }
 
   return results.length;
 }

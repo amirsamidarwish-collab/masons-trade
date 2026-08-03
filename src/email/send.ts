@@ -66,5 +66,24 @@ export async function sendBatch(
     return emails.map((e) => ({ to: e.to, ok: false, error }));
   }
 
+  // A 2xx status alone does not prove every recipient was accepted - Resend's
+  // batch endpoint can return 2xx with a `data` array shorter than the
+  // payload. Require the array to exist and match the payload size before
+  // trusting it; otherwise fail the whole batch loudly rather than silently
+  // marking unconfirmed recipients as sent.
+  let body: { data?: unknown };
+  try {
+    body = (await res.json()) as { data?: unknown };
+  } catch (err) {
+    const error = `provider returned unparseable JSON: ${String(err)}`;
+    return emails.map((e) => ({ to: e.to, ok: false, error }));
+  }
+
+  if (!Array.isArray(body.data) || body.data.length !== payload.length) {
+    const got = Array.isArray(body.data) ? String(body.data.length) : 'no array';
+    const error = `provider confirmed ${got} of ${payload.length} recipients in its response`;
+    return emails.map((e) => ({ to: e.to, ok: false, error }));
+  }
+
   return emails.map((e) => ({ to: e.to, ok: true }));
 }

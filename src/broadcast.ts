@@ -72,6 +72,22 @@ export async function broadcastTrade(
   for (const chunkIndex of [...byChunk.keys()].sort((a, b) => a - b)) {
     const chunk = byChunk.get(chunkIndex)!;
 
+    // Write-ahead: record every recipient in this chunk as 'pending' before the
+    // provider is ever called. A crash between provider-accept and the
+    // post-call write below still leaves a row behind, so the next run finds
+    // it (the query above treats anything short of 'sent' as un-sent) and
+    // retries it under the same per-chunk idempotency key instead of losing
+    // track of it entirely.
+    await env.DB.batch(
+      chunk.map((s) =>
+        env.DB.prepare(
+          `INSERT INTO send_log (trade_id, subscriber_id, chunk, status, updated_at)
+           VALUES (?, ?, ?, 'pending', ?)
+           ON CONFLICT(trade_id, subscriber_id) DO UPDATE SET status = 'pending', updated_at = excluded.updated_at`,
+        ).bind(tradeId, s.id, chunkIndex, now),
+      ),
+    );
+
     const emails = chunk.map((s) => {
       const url = unsubUrl(env, s.unsub_token);
       const mail = renderTrade(env, trade, url);

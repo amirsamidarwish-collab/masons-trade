@@ -105,3 +105,68 @@ describe('POST /subscribe', () => {
     expect(row?.n).toBe(0);
   });
 });
+
+// I5 - an unsubscribed or bounced address must be able to rejoin, but the
+// response body must stay identical to a fresh signup in every case (no
+// account enumeration). Each test below uses its own IP: this file shares an
+// edge-limiter budget on the default IP across all its tests.
+describe('resubscription after unsubscribe or bounce', () => {
+  it('resets an unsubscribed address to pending_approval and mails it again, with a response byte-identical to a new signup', async () => {
+    await env.DB.prepare(
+      "INSERT INTO subscribers (email, status, unsub_token, created_at) VALUES ('rejoin@example.com', 'unsubscribed', 'old-token', 1)",
+    ).run();
+
+    const control = await post({ email: 'control-signup@example.com' }, '203.0.113.201');
+    const res = await post({ email: 'rejoin@example.com' }, '203.0.113.202');
+
+    expect(res.status).toBe(control.status);
+    expect(await res.text()).toBe(await control.text());
+
+    const row = await env.DB.prepare(
+      "SELECT status, unsub_token, approved_at FROM subscribers WHERE email = 'rejoin@example.com'",
+    ).first<any>();
+    expect(row.status).toBe('pending_approval');
+    expect(row.unsub_token).not.toBe('old-token');
+    expect(row.approved_at).toBeNull();
+
+    // One under-review email for the control signup, one for the reset.
+    const emailCalls = fetchMock.mock.calls.filter(([url]) => !String(url).includes('dns-query'));
+    expect(emailCalls).toHaveLength(2);
+  });
+
+  it('resets a bounced address to pending_approval on re-signup', async () => {
+    await env.DB.prepare(
+      "INSERT INTO subscribers (email, status, unsub_token, created_at) VALUES ('bounced-again@example.com', 'bounced', 'old-token-2', 1)",
+    ).run();
+
+    const res = await post({ email: 'bounced-again@example.com' }, '203.0.113.203');
+    expect(res.status).toBe(200);
+
+    const row = await env.DB.prepare(
+      "SELECT status FROM subscribers WHERE email = 'bounced-again@example.com'",
+    ).first<any>();
+    expect(row.status).toBe('pending_approval');
+
+    const emailCalls = fetchMock.mock.calls.filter(([url]) => !String(url).includes('dns-query'));
+    expect(emailCalls).toHaveLength(1);
+  });
+
+  it('does not reset or re-mail an address that is already pending_approval or approved', async () => {
+    await env.DB.prepare(
+      "INSERT INTO subscribers (email, status, unsub_token, created_at, approved_at) VALUES ('already@example.com', 'approved', 'kept-token', 1, 5)",
+    ).run();
+
+    const res = await post({ email: 'already@example.com' }, '203.0.113.204');
+    expect(res.status).toBe(200);
+
+    const row = await env.DB.prepare(
+      "SELECT status, unsub_token, approved_at FROM subscribers WHERE email = 'already@example.com'",
+    ).first<any>();
+    expect(row.status).toBe('approved');
+    expect(row.unsub_token).toBe('kept-token');
+    expect(row.approved_at).toBe(5);
+
+    const emailCalls = fetchMock.mock.calls.filter(([url]) => !String(url).includes('dns-query'));
+    expect(emailCalls).toHaveLength(0);
+  });
+});

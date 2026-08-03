@@ -36,7 +36,11 @@ The entire trade-input path exists in its current shape because of this:
 - The parser refuses low-confidence input and names the field it could not read. It never
   guesses a number. A misheard stop-loss reaching the whole list is the failure that hurts.
 - Every broadcast passes through the read-back-and-confirm step. Nothing sends unprompted.
-- `send_log` is written before sending. Sends must stay idempotent and resumable.
+- `send_log` is written before sending: each chunk is logged `pending` before the provider
+  is called, then flipped to `sent` or `failed` after. A crash between those two writes
+  leaves the row `pending`, and the recipient query retries anything short of `sent` -
+  including `pending` - so a crashed run resumes instead of stranding that recipient. Sends
+  must stay idempotent and resumable.
 - The Telegram webhook checks the secret-token header **and** the chat ID allowlist. Without
   both, anyone who finds the bot can mail the list.
 
@@ -61,6 +65,11 @@ The entire trade-input path exists in its current shape because of this:
   There is a code-level failsafe, not just this paragraph: `bounce.ts` returns `501` on every
   request whenever `DRY_RUN` is not `'true'`, so going live without signature verification fails
   loudly (webhook calls start erroring) instead of silently emptying the list.
+- A previously `unsubscribed` or `bounced` address that signs up again is reset to
+  `pending_approval` (fresh token, fresh `created_at`, `approved_at` cleared) and sent the
+  under-review email again, exactly like a new signup. An address still `pending_approval`
+  or `approved` is left untouched. The response body is identical in every case -
+  enumeration resistance still holds even though the address can now rejoin.
 - Unsubscribe is split by verb on purpose: `GET` renders a confirm button and mutates nothing,
   `POST` performs the removal. Mail scanners prefetch links, and a mutating GET lets them
   unsubscribe real people. Gmail's one-click already POSTs, so it stays instant.

@@ -40,8 +40,22 @@ async function seedApproved(count: number) {
   }
 }
 
+/**
+ * Builds a 200 response whose `data` array matches the outgoing payload's
+ * length, the way sendBatch (see I2) now requires to count a chunk as sent.
+ * A stub that returns a fixed-size (or empty) `data` array regardless of
+ * payload size would misreport delivery - that's the exact hazard I2 fixes.
+ */
+function sizedOkResponse(init?: RequestInit): Response {
+  const payload = JSON.parse((init?.body as string) ?? '[]');
+  return new Response(
+    JSON.stringify({ data: payload.map((_: unknown, i: number) => ({ id: `e${i}` })) }),
+    { status: 200 },
+  );
+}
+
 function okFetch() {
-  return vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 }));
+  return vi.fn(async (_url: string, init?: RequestInit) => sizedOkResponse(init));
 }
 
 describe('countApproved', () => {
@@ -114,10 +128,10 @@ describe('broadcastTrade', () => {
     let call = 0;
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => {
+      vi.fn(async (_url: string, init?: RequestInit) => {
         call++;
         if (call === 2) return new Response('boom', { status: 500 });
-        return new Response(JSON.stringify({ data: [] }), { status: 200 });
+        return sizedOkResponse(init);
       }),
     );
     const draft = await createDraft(env.DB, trade, 't', 1);
@@ -145,10 +159,10 @@ describe('broadcastTrade', () => {
     let call = 0;
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => {
+      vi.fn(async (_url: string, init?: RequestInit) => {
         call++;
         if (call === 2) return new Response('boom', { status: 500 });
-        return new Response(JSON.stringify({ data: [] }), { status: 200 });
+        return sizedOkResponse(init);
       }),
     );
     const draft = await createDraft(env.DB, trade, 't', 1);
@@ -177,5 +191,100 @@ describe('broadcastTrade', () => {
 
     expect(await broadcastTrade(env as any, draft.id, 1000)).toEqual({ sent: 0, failed: 0 });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+// I2 - a 2xx status alone does not prove delivery. sendBatch must check the
+// provider's `data` array against the payload size, and broadcastTrade must
+// treat a mismatch as a failed chunk, not a sent one.
+describe('provider response verification (I2)', () => {
+  it('fails an entire chunk, and leaves the trade resumable, when the provider confirms fewer recipients than were sent', async () => {
+    await seedApproved(5);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () => new Response(JSON.stringify({ data: [{ id: 'only-one' }] }), { status: 200 }),
+      ),
+    );
+    const draft = await createDraft(env.DB, trade, 't', 1);
+    await claimDraft(env.DB, draft.draft_token);
+
+    expect(await broadcastTrade(env as any, draft.id, 1000)).toEqual({ sent: 0, failed: 5 });
+
+    const row = await env.DB.prepare('SELECT status, recipient_count FROM trades').first<any>();
+    // failed > 0, so the trade stays 'sending' (resumable) rather than 'sent'.
+    expect(row.status).toBe('sending');
+    expect(row.recipient_count).toBe(0);
+
+    const failedLog = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM send_log WHERE trade_id = ? AND status = 'failed'",
+    )
+      .bind(draft.id)
+      .first<{ n: number }>();
+    expect(failedLog?.n).toBe(5);
+  });
+});
+
+// I3 - send_log must be written before the provider is called (write-ahead),
+// and a recipient left 'pending' by a crashed run must be retried, not
+// stranded.
+describe('send_log write-ahead (I3)', () => {
+  it('writes pending send_log rows before the provider call returns', async () => {
+    await seedApproved(3);
+    const draft = await createDraft(env.DB, trade, 't', 1);
+    await claimDraft(env.DB, draft.draft_token);
+
+    let pendingDuringCall = -1;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const row = await env.DB.prepare(
+          "SELECT COUNT(*) AS n FROM send_log WHERE trade_id = ? AND status = 'pending'",
+        )
+          .bind(draft.id)
+          .first<{ n: number }>();
+        pendingDuringCall = row?.n ?? 0;
+        return sizedOkResponse(init);
+      }),
+    );
+
+    await broadcastTrade(env as any, draft.id, 1000);
+
+    expect(pendingDuringCall).toBe(3);
+  });
+
+  it('retries a recipient left pending by a crashed run on the next call', async () => {
+    await seedApproved(2);
+    const draft = await createDraft(env.DB, trade, 't', 1);
+    await claimDraft(env.DB, draft.draft_token);
+
+    const subscriber = await env.DB.prepare('SELECT id FROM subscribers ORDER BY id LIMIT 1').first<{
+      id: number;
+    }>();
+    // Simulate a crashed run: the write-ahead 'pending' row was written but
+    // the process died before the provider call resolved it to 'sent' or
+    // 'failed'.
+    await env.DB.prepare(
+      `INSERT INTO send_log (trade_id, subscriber_id, chunk, status, updated_at) VALUES (?, ?, 0, 'pending', 500)`,
+    )
+      .bind(draft.id, subscriber!.id)
+      .run();
+
+    const fetchMock = okFetch();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await broadcastTrade(env as any, draft.id, 1000);
+
+    expect(result).toEqual({ sent: 2, failed: 0 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(payload).toHaveLength(2);
+
+    const row = await env.DB.prepare(
+      'SELECT status FROM send_log WHERE trade_id = ? AND subscriber_id = ?',
+    )
+      .bind(draft.id, subscriber!.id)
+      .first<any>();
+    expect(row.status).toBe('sent');
   });
 });

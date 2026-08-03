@@ -73,4 +73,27 @@ describe('sendBatch', () => {
     expect(await sendBatch(baseEnv, [], 'k')).toEqual([]);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  // I2 - a 2xx status alone does not prove every recipient was accepted;
+  // the provider's `data` array must be checked against the payload size.
+  it('fails every recipient in the batch when the provider confirms fewer than were sent', async () => {
+    const second = { ...email, to: 'second@example.com' };
+    stubFetch(async () => jsonResponse({ data: [{ id: 'e1' }] }));
+
+    const results = await sendBatch(baseEnv, [email, second], 'k');
+
+    expect(results).toEqual([
+      { to: 'real@example.com', ok: false, error: expect.stringContaining('confirmed 1 of 2') },
+      { to: 'second@example.com', ok: false, error: expect.stringContaining('confirmed 1 of 2') },
+    ]);
+  });
+
+  it('fails the batch when the provider response has no data array at all', async () => {
+    stubFetch(async () => jsonResponse({ ok: true }));
+
+    const results = await sendBatch(baseEnv, [email], 'k');
+
+    expect(results[0].ok).toBe(false);
+    expect(results[0].error).toContain('no array');
+  });
 });
