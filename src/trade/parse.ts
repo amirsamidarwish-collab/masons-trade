@@ -16,6 +16,9 @@ function normalise(text: string): string {
   return text
     .toLowerCase()
     .replace(/[,!?;:]/g, ' ')
+    // A period not followed by a digit is sentence punctuation (Whisper adds a
+    // trailing one), not a decimal point, and must not survive into a price.
+    .replace(/\.(?!\d)/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -128,6 +131,9 @@ export function parseTrade(transcript: string): ParseResult {
   let direction: 'Buy' | 'Sell' | null = null;
   if (/\b(buy|long)\b/.test(text)) direction = 'Buy';
   else if (/\b(sell|short)\b/.test(text)) direction = 'Sell';
+  // Whisper routinely hears "buy" as "by". Only trusted when no explicit
+  // direction word appears, so "sell by tomorrow" can never become a Buy.
+  else if (/\bby\b/.test(text)) direction = 'Buy';
   if (!direction) missing.push('direction');
 
   const entry = findEntry(text);

@@ -27,7 +27,7 @@ const SORTED = PAIRS.flatMap((p) => p.aliases.map((a) => ({ alias: a, symbol: p.
 export function resolvePair(text: string): string | null {
   const normalised = text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
   for (const { alias, symbol } of SORTED) {
-    const pattern = new RegExp(`(^|\\s)${alias.replace(/\s+/g, '\\s+')}($|\\s)`);
+    const pattern = new RegExp(`(^|\\s)${alias.replace(/\s+/g, '\\s*')}($|\\s)`);
     if (pattern.test(normalised)) return symbol;
   }
   return null;

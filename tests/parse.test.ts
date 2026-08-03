@@ -169,4 +169,23 @@ describe('parseTrade', () => {
     const r = parseTrade(decomposed);
     expect(r.ok && r.trade.note).toBe('café open');
   });
+
+  it('parses a real Whisper transcript, mishearings and punctuation included', () => {
+    expect(parseTrade('Eurodollar by at 1.0850, stop loss 1.0800, take profit 1.0900.')).toEqual({
+      ok: true,
+      trade: {
+        pair: 'EURUSD',
+        direction: 'Buy',
+        entry: '1.0850',
+        take_profit: '1.0900',
+        stop_loss: '1.0800',
+        note: null,
+      },
+    });
+  });
+
+  it('never reads "by" as Buy when an explicit direction is present', () => {
+    const r = parseTrade('gold sell at 2350.50 tp 2340.00 sl 2360.00 note close by friday');
+    expect(r.ok && r.trade.direction).toBe('Sell');
+  });
 });
