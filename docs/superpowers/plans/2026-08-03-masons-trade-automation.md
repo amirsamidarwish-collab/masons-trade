@@ -157,7 +157,7 @@ crons = ["*/15 * * * *"]
 DRY_RUN = "true"
 SITE_ORIGIN = "https://masonstrade.com"
 FROM_EMAIL = "Mason's Trade <noreply@masonstrade.com>"
-TEST_INBOX = "amirsamidarwish@gmail.com"
+TEST_INBOX = "set-me@example.com"
 ```
 
 - [ ] **Step 4: Create `migrations/0001_init.sql`**
