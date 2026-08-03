@@ -3139,6 +3139,12 @@ git commit -m "Wire Telegram webhook with auth, read-back and confirm-to-send"
 
 ### Task 13: Site form wiring
 
+**Superseded: the honeypot field below is named `company` in this frozen brief; the
+shipped implementation renamed it to `subscribe_hp`** (see `src/routes/subscribe.ts` and
+`site/index.html`) because `company` is exactly the kind of field name browser/password-manager
+autofill heuristics target. This brief is left as-is as the Codex handoff record; do not
+implement it literally.
+
 **Files:**
 - Modify: `site/index.html`
 

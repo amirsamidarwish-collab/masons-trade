@@ -164,7 +164,21 @@ describe('telegram webhook trade flow', () => {
       },
     };
     await hook(callback);
+
+    const callsBefore = (globalThis.fetch as any).mock.calls.length;
     await hook(callback);
+
+    // I7: assert the operator-visible outcome of the claim guard itself -
+    // counting send_log rows only proves the primary key stopped a second
+    // insert, which it would do even without claimDraft's once-only guard.
+    const newCalls = (globalThis.fetch as any).mock.calls.slice(callsBefore);
+    const answerCall = newCalls.find((c: any) => String(c[0]).includes('answerCallbackQuery'));
+    expect(answerCall).toBeDefined();
+    expect(JSON.parse(answerCall[1].body).text).toBe('Already handled');
+
+    const secondMessageCall = newCalls.find((c: any) => String(c[0]).includes('sendMessage'));
+    expect(secondMessageCall).toBeDefined();
+    expect(JSON.parse(secondMessageCall[1].body).text).toBe('That trade was already sent or cancelled.');
 
     const row = await env.DB.prepare(
       "SELECT COUNT(*) AS n FROM send_log WHERE status = 'sent'",

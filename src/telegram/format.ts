@@ -12,7 +12,7 @@ export interface InlineKeyboard {
 
 /**
  * The operator uses VoiceOver, which reads this text aloud.
- * No emoji, no markdown characters, short lines, numbers last on each line.
+ * No emoji, no markdown characters, short lines, important numbers first on each line.
  * Messages are sent WITHOUT parse_mode so Telegram renders them literally.
  */
 export function formatTradeReadback(trade: Trade, recipientCount: number): string {

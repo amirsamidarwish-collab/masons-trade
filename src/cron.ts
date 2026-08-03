@@ -21,10 +21,11 @@ export async function runApprovalSweep(env: Env, now: number): Promise<number> {
   const cutoff = now - APPROVAL_DELAY_MS;
 
   // Flip status first, and make the approved set and the emailed set the same set by
-  // construction: RETURNING hands back exactly the rows this statement actually changed,
-  // so a row that no-ops (e.g. unsubscribed between selection and update) is never
-  // mailed. A crash after this point costs a missed approval email, not a duplicate one
-  // — the reverse order would re-mail everyone on the next tick.
+  // construction: RETURNING hands back exactly the rows this statement actually changed
+  // (the atomic UPDATE ... RETURNING means only rows still matching the WHERE clause at
+  // update time are ever selected), so nothing is mailed unless it was actually approved.
+  // A crash after this point costs a missed approval email, not a duplicate one — the
+  // reverse order would re-mail everyone on the next tick.
   const { results } = await env.DB.prepare(
     `UPDATE subscribers
      SET status = 'approved', approved_at = ?

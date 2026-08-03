@@ -34,16 +34,22 @@ describe('templates', () => {
     expect(m.text).toContain('1.0850');
     expect(m.text).not.toContain('1.085\n');
     expect(m.text).toContain('Take profit: 1.0920');
+    expect(m.text).toContain('does not constitute financial advice');
+    expect(m.html).toContain(UNSUB);
   });
 
   it('trade email omits the note line entirely when there is no note', () => {
     const m = renderTrade(env, trade, UNSUB);
     expect(m.text).not.toContain('undefined');
     expect(m.text).not.toContain('null');
+    expect(m.text).toContain('does not constitute financial advice');
+    expect(m.html).toContain(UNSUB);
   });
 
   it('trade email includes the note when present', () => {
     const m = renderTrade(env, { ...trade, note: 'London session only' }, UNSUB);
     expect(m.text).toContain('London session only');
+    expect(m.text).toContain('does not constitute financial advice');
+    expect(m.html).toContain(UNSUB);
   });
 });

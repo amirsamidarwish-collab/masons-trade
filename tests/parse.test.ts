@@ -105,6 +105,11 @@ describe('parseTrade', () => {
     expect(r.ok && r.trade.note).toBe('important checkthis');
   });
 
+  it('strips characters VoiceOver announces aloud as noise from a note', () => {
+    const r = parseTrade('gold buy at 2350.50 tp 2360.00 sl 2340.00 note see #1 [chart] > here');
+    expect(r.ok && r.trade.note).toBe('see 1 chart here');
+  });
+
   it('treats a note that is only emoji as no note at all', () => {
     const r = parseTrade('gold buy at 2350.50 tp 2360.00 sl 2340.00 note 🔥🔥');
     expect(r.ok && r.trade.note).toBe(null);

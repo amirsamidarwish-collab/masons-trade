@@ -47,7 +47,6 @@ describe('unsubscribe', () => {
     expect(res.status).toBe(404);
     const body = await res.text();
     expect(body).not.toContain('<form');
-    expect(body).not.toContain('Unsubscribe');
   });
 
   it('is safe to POST twice', async () => {

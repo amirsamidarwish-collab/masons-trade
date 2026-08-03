@@ -128,6 +128,12 @@ function sanitiseNote(raw: string): string {
     .replace(/[^\p{L}\p{N}\p{P}\p{Sc}\p{Sm}\s]/gu, '')
     .replace(/\p{Extended_Pictographic}/gu, '')
     .replace(/[*_`~]/g, '')
+    // #, [, ], {, }, <, >, | and ^ are punctuation/math-symbol codepoints, so the
+    // allowlist above lets them through, but VoiceOver announces every one of them
+    // aloud ("pound sign", "left bracket", "greater than"...) as noise around the
+    // prices in the note. Stripped by name, not by widening \p{P} - a blanket
+    // \p{P} strip would also eat the decimal point in a price mentioned in the note.
+    .replace(/[#\[\]{}<>|^]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }

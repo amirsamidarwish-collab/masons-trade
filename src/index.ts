@@ -17,7 +17,15 @@ app.route('/', telegram);
 export default {
   fetch: app.fetch,
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(runApprovalSweep(env, event.scheduledTime));
-    ctx.waitUntil(runStuckBroadcastSweep(env, event.scheduledTime));
+    ctx.waitUntil(
+      runApprovalSweep(env, event.scheduledTime).catch((err) => {
+        console.error('runApprovalSweep failed', err instanceof Error ? err.message : err);
+      }),
+    );
+    ctx.waitUntil(
+      runStuckBroadcastSweep(env, event.scheduledTime).catch((err) => {
+        console.error('runStuckBroadcastSweep failed', err instanceof Error ? err.message : err);
+      }),
+    );
   },
 } satisfies ExportedHandler<Env>;

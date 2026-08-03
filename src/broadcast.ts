@@ -94,6 +94,12 @@ export async function broadcastTrade(
       return { to: s.email, subject: mail.subject, html: mail.html, text: mail.text, unsubUrl: url };
     });
 
+    // A chunk that failed outright and is retried later can be smaller than it was the
+    // first time (e.g. someone in it unsubscribed in between), reissuing the same
+    // `trade-${tradeId}-chunk-${chunkIndex}` idempotency key for a smaller payload. That
+    // is fine for the provider - it just sends the smaller set - but it means the key is
+    // not a stable proxy for "these exact people" the way the write-ahead log's rows are;
+    // the send_log rows above are what actually track per-recipient state.
     const results = await sendBatch(env, emails, `trade-${tradeId}-chunk-${chunkIndex}`);
 
     await env.DB.batch(

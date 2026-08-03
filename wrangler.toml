@@ -29,4 +29,7 @@ crons = ["*/15 * * * *"]
 DRY_RUN = "true"
 SITE_ORIGIN = "https://masonstrade.com"
 FROM_EMAIL = "Mason's Trade <noreply@masonstrade.com>"
+# Test-only inbox: every DRY_RUN send is redirected here instead of the real
+# recipient. This is the project owner's own personal address, not a system
+# or shared inbox - change it per environment, don't assume it's generic.
 TEST_INBOX = "amirsamidarwish@gmail.com"

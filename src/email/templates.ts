@@ -44,7 +44,7 @@ Unsubscribe: ${unsubUrl}`;
 export function renderUnderReview(env: Env, unsubUrl: string): RenderedEmail {
   const bodyText = `We've received your request for access to Mason's Trade.
 
-Applications are reviewed before access is granted. You'll hear back from us within roughly 30 hours - no action is needed from you in the meantime.
+Applications are reviewed before access is granted. You'll hear back from us within roughly 30 hours — no action is needed from you in the meantime.
 
 Mason's Trade`;
   const bodyHtml = `<p>We've received your request for access to Mason's Trade.</p>

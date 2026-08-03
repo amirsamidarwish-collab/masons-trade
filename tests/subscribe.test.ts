@@ -36,24 +36,34 @@ function post(body: unknown, ip = '203.0.113.1') {
 
 describe('POST /subscribe', () => {
   it('stores a valid address as pending_approval', async () => {
-    const res = await post({ email: 'New@Example.com' });
+    const res = await post({ email: 'New@Example.com' }, '203.0.113.11');
     expect(res.status).toBe(200);
 
     const row = await env.DB.prepare('SELECT email, status FROM subscribers').first();
     expect(row).toMatchObject({ email: 'new@example.com', status: 'pending_approval' });
+
+    // I6: prove the under-review email was actually sent, not just rendered.
+    const sendCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes('api.resend.com/emails/batch'));
+    expect(sendCalls).toHaveLength(1);
+    const payload = JSON.parse((sendCalls[0][1] as RequestInit).body as string);
+    expect(payload).toHaveLength(1);
+    // DRY_RUN redirects the actual "to" to the shared test inbox; that
+    // redirection is itself the recipient we can verify sendBatch received.
+    expect(payload[0].to).toEqual([(env as any).TEST_INBOX]);
+    expect(payload[0].subject).toBe("Your Mason's Trade application");
   });
 
   it('rejects a malformed address with 400', async () => {
-    expect((await post({ email: 'nope' })).status).toBe(400);
+    expect((await post({ email: 'nope' }, '203.0.113.12')).status).toBe(400);
   });
 
   it('rejects an address whose domain has no MX record', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({}))));
-    expect((await post({ email: 'a@gmial.com' })).status).toBe(400);
+    expect((await post({ email: 'a@gmial.com' }, '203.0.113.13')).status).toBe(400);
   });
 
   it('silently drops a submission that filled the honeypot', async () => {
-    const res = await post({ email: 'bot@example.com', subscribe_hp: 'spam' });
+    const res = await post({ email: 'bot@example.com', subscribe_hp: 'spam' }, '203.0.113.14');
     expect(res.status).toBe(200);
     const row = await env.DB.prepare('SELECT COUNT(*) AS n FROM subscribers').first<{ n: number }>();
     expect(row?.n).toBe(0);
@@ -68,8 +78,8 @@ describe('POST /subscribe', () => {
   });
 
   it('returns an identical response for a duplicate, so the list cannot be enumerated', async () => {
-    const first = await post({ email: 'dupe@example.com' });
-    const second = await post({ email: 'dupe@example.com' });
+    const first = await post({ email: 'dupe@example.com' }, '203.0.113.15');
+    const second = await post({ email: 'dupe@example.com' }, '203.0.113.15');
 
     expect(second.status).toBe(first.status);
     expect(await second.text()).toBe(await first.text());
@@ -78,6 +88,8 @@ describe('POST /subscribe', () => {
     expect(row?.n).toBe(1);
   });
 
+  // This is the one test that intentionally shares the default IP across
+  // repeated requests, to exercise the per-IP edge-limiter budget itself.
   it('rate limits a single IP after five signups', async () => {
     for (let i = 0; i < 5; i++) await post({ email: `u${i}@example.com` });
     expect((await post({ email: 'u5@example.com' })).status).toBe(429);

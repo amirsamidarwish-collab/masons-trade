@@ -6,6 +6,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "vitest run",
+    "typecheck": "tsc --noEmit",
     "migrate:local": "wrangler d1 migrations apply masons-trade --local",
     "migrate:remote": "wrangler d1 migrations apply masons-trade --remote"
   },

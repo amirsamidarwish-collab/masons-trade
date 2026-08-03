@@ -30,6 +30,11 @@ describe('resolvePair', () => {
     ['aussiedollar', 'AUDUSD'],
     ['ustech100', 'NAS100'],
     ['dowjones', 'US30'],
+    ['eurousdollar', 'EURUSD'],
+    ['sterlingdollar', 'GBPUSD'],
+    ['dollarcad', 'USDCAD'],
+    ['dollarswiss', 'USDCHF'],
+    ['sandp', 'US500'],
   ])('resolves the spaceless form %s without colliding', (input, expected) => {
     expect(resolvePair(input)).toBe(expected);
   });

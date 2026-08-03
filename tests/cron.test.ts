@@ -65,6 +65,16 @@ describe('runApprovalSweep', () => {
     const row = await env.DB.prepare('SELECT status, approved_at FROM subscribers').first<any>();
     expect(row.status).toBe('approved');
     expect(row.approved_at).toBe(NOW);
+
+    // I6: prove the approved email was actually sent, not just that the
+    // status flip happened.
+    const calls = (globalThis.fetch as any).mock.calls as [string, RequestInit][];
+    const sendCalls = calls.filter(([url]) => String(url).includes('api.resend.com/emails/batch'));
+    expect(sendCalls).toHaveLength(1);
+    const payload = JSON.parse(sendCalls[0][1].body as string);
+    expect(payload).toHaveLength(1);
+    expect(payload[0].to).toEqual([(env as any).TEST_INBOX]);
+    expect(payload[0].subject).toBe("Your Mason's Trade access is approved");
   });
 
   it('approves a subscriber at exactly the 30 hour mark', async () => {
